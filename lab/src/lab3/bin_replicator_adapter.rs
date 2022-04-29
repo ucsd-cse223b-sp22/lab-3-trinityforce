@@ -1,4 +1,4 @@
-use super::client::StorageClient;
+use super::bin_prefix_adapter::BinPrefixAdapter;
 use tribbler::err::TribResult;
 use tribbler::storage;
 
@@ -9,9 +9,10 @@ pub struct BinReplicatorAdapter {
 }
 
 impl BinReplicatorAdapter {
-    pub fn new(addr: &str, bin: &str) -> Self {
+    pub fn new(hash_index: u32, backs: Vec<String>, bin: &str) -> Self {
         Self {
-            addr: addr.to_string(),
+            hash_index,
+            backs: backs.clone(),
             bin: bin.to_string(),
         }
     }

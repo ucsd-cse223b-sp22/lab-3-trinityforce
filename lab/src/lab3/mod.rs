@@ -170,6 +170,7 @@
 mod backend_server;
 mod bin_client;
 mod bin_prefix_adapter;
+mod bin_replicator_adapter;
 mod client;
 mod frontend_server;
 mod keeper_server;
