@@ -1,4 +1,4 @@
-use super::bin_prefix_adapter::BinPrefixAdapter;
+use super::bin_replicator_adapter::BinReplicatorAdapter;
 use super::client::StorageClient;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -27,9 +27,8 @@ impl BinStorage for BinStorageClient {
         let hash_res = hasher.finish();
         let backs = self.backs.read().map_err(|e| e.to_string())?;
         let len = backs.len() as u64;
-        let ind = (hash_res % len) as usize;
-        let target_back_addr = backs[ind].as_str();
-        let storage_bin_prefix_adapter = BinPrefixAdapter::new(target_back_addr, name);
+        let ind = (hash_res % len) as u32;
+        let storage_bin_prefix_adapter = BinReplicatorAdapter::new(ind, backs.clone(), name);
         // println!("{}", target_back_addr);
         Ok(Box::new(storage_bin_prefix_adapter))
     }
