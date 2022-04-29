@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use lab::{self, lab1};
+use lab::{self, lab3};
 use log::LevelFilter;
 use tokio::{sync::mpsc::Sender as MpscSender, task::JoinHandle};
 
@@ -54,12 +54,12 @@ async fn setup(
             "back failed to start".to_string(),
         )));
     }
-    let client = lab1::new_client(format!("http://{}", addr).as_str()).await?;
+    let client = lab3::new_client(addr).await?;
     Ok((client, handle, shut_tx.clone()))
 }
 
 fn spawn_back(cfg: BackConfig) -> tokio::task::JoinHandle<TribResult<()>> {
-    tokio::spawn(lab1::serve_back(cfg))
+    tokio::spawn(lab3::serve_back(cfg))
 }
 
 fn kv(key: &str, value: &str) -> KeyValue {
@@ -211,7 +211,7 @@ async fn test_store_before_serve() -> TribResult<()> {
     if !ready {
         panic!("failed to start")
     }
-    let client = lab1::new_client(format!("http://{}", DEFAULT_HOST).as_str()).await?;
+    let client = lab3::new_client(DEFAULT_HOST).await?;
     assert_eq!(Some("hi".to_string()), client.get("hello").await?);
     Ok(())
 }
@@ -275,7 +275,7 @@ async fn test_spawn_same_addr() -> TribResult<()> {
     let _ = spawn_back(cfg);
     assert_eq!(true, rx.recv_timeout(Duration::from_secs(2))?);
 
-    let client = lab1::new_client(format!("http://{}", addr.clone()).as_str()).await?;
+    let client = lab3::new_client(addr.clone().as_str()).await?;
     client.set(&kv("hello", "hi")).await?;
     assert_eq!(Some("hi".to_string()), client.get("hello").await?);
     Ok(())
@@ -294,7 +294,7 @@ async fn test_back_spawn_new_storage() -> TribResult<()> {
     };
     let handle = spawn_back(cfg);
     assert_eq!(true, rx.recv_timeout(Duration::from_secs(2))?);
-    let client = lab1::new_client(format!("http://{}", host).as_mut()).await?;
+    let client = lab3::new_client(&host).await?;
     client.set(&kv("hello", "hi")).await?;
     let _ = shut_tx.send(()).await?;
     let _ = handle.await;
@@ -319,9 +319,9 @@ async fn test_concurrent_cli_ops() -> TribResult<()> {
     let client = Arc::new(client);
     let mut handles = vec![];
     for _ in 0..5 {
-        let addr = format!("http://{}", DEFAULT_HOST);
+        let addr = DEFAULT_HOST;
         let jh = tokio::spawn(async move {
-            let client = match lab1::new_client(&addr).await {
+            let client = match lab3::new_client(&addr).await {
                 Ok(c) => c,
                 Err(e) => return Err(TribblerError::Unknown(e.to_string())),
             };

@@ -167,3 +167,15 @@
 //! if they feel the need.
 //!
 //! Happy Lab 3. :-)
+mod backend_server;
+mod bin_client;
+mod bin_prefix_adapter;
+mod client;
+mod frontend_server;
+mod keeper_server;
+mod lab;
+pub use crate::lab3::lab::new_bin_client;
+pub use crate::lab3::lab::new_client;
+pub use crate::lab3::lab::new_front;
+pub use crate::lab3::lab::serve_back;
+pub use crate::lab3::lab::serve_keeper;
