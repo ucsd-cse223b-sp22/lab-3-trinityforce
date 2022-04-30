@@ -1,6 +1,7 @@
 use super::bin_prefix_adapter::BinPrefixAdapter;
 use serde::{Deserialize, Serialize};
 use std::cmp::{self, min, Ordering};
+use std::collections::HashSet;
 use std::error;
 use std::fmt;
 use tribbler::err::TribResult;
@@ -66,20 +67,59 @@ impl storage::KeyList for BinReplicatorAdapter {
         let start = self.hash_index as usize;
         let end = backs.len() + self.hash_index as usize;
         for i in start..end {
-            let backend_index = i % backs.len();
-            let backend_addr = &backs[backend_index];
-            let bin_prefix_adapter = BinPrefixAdapter::new(&backend_addr, &self.bin.to_string());
+            let primary_backend_index = i % backs.len();
+            let primary_backend_addr = &backs[primary_backend_index];
+            let primary_bin_prefix_adapter =
+                BinPrefixAdapter::new(&primary_backend_addr, &self.bin.to_string());
             let wrapped_key = format!("{}{}", LIST_LOG_PREFIX, key);
-            let list_retrieved_res = bin_prefix_adapter.list_get(&wrapped_key).await;
-            if list_retrieved_res.is_err() {
+            let primary_list_retrieved_res =
+                primary_bin_prefix_adapter.list_get(&wrapped_key).await;
+            if primary_list_retrieved_res.is_err() {
                 continue;
             }
-            let list_retrieved = list_retrieved_res.unwrap().0;
-            let mut sorted_list = vec![];
-            for element in list_retrieved {
+            let primary_list_retrieved = primary_list_retrieved_res.unwrap().0;
+            let mut primary_list_dedup = vec![];
+            let mut primary_clock_id_set = HashSet::new();
+            let mut secondary_list_dedup = vec![];
+            let mut secondary_clock_id_set = HashSet::new();
+
+            for element in primary_list_retrieved {
                 let log_entry: SortableLogRecord = serde_json::from_str(&element).unwrap();
-                sorted_list.push(log_entry);
+                if primary_clock_id_set.contains(&log_entry.clock_id) {
+                    continue;
+                }
+                primary_clock_id_set.insert(log_entry.clock_id);
+                primary_list_dedup.push(log_entry);
             }
+
+            for j in i + 1..end {
+                let secondary_backend_index = j % backs.len();
+                let secondary_backend_addr = &backs[secondary_backend_index];
+                let secondary_bin_prefix_adapter =
+                    BinPrefixAdapter::new(&secondary_backend_addr, &self.bin.to_string());
+                let secondary_list_retrieved_res =
+                    secondary_bin_prefix_adapter.list_get(&wrapped_key).await;
+                if secondary_list_retrieved_res.is_err() {
+                    continue;
+                }
+                let second_list_retrieved = secondary_list_retrieved_res.unwrap().0;
+                for element in second_list_retrieved {
+                    let log_entry: SortableLogRecord = serde_json::from_str(&element).unwrap();
+                    if secondary_clock_id_set.contains(&log_entry.clock_id) {
+                        continue;
+                    }
+                    secondary_clock_id_set.insert(log_entry.clock_id);
+                    secondary_list_dedup.push(log_entry);
+                }
+                break;
+            }
+            let mut sorted_list;
+            if primary_list_dedup.len() >= secondary_list_dedup.len() {
+                sorted_list = primary_list_dedup;
+            } else {
+                sorted_list = secondary_list_dedup;
+            }
+
             sorted_list.sort_by(|a, b| {
                 if a.clock_id < b.clock_id {
                     return Ordering::Less;
@@ -113,6 +153,7 @@ impl storage::KeyList for BinReplicatorAdapter {
                 continue;
             }
 
+            // get primary clock as unique id
             let primary_clock_id = primary_clock_res.unwrap();
             let log_entry = SortableLogRecord {
                 clock_id: primary_clock_id,
@@ -120,6 +161,7 @@ impl storage::KeyList for BinReplicatorAdapter {
             };
             let log_entry_str = serde_json::to_string(&log_entry)?;
 
+            // try appending to first replica
             let wrapped_key = format!("{}{}", LIST_LOG_PREFIX, kv.key.to_string());
             let primary_append_res = primary_bin_prefix_adapter
                 .list_append(&storage::KeyValue {
@@ -130,6 +172,7 @@ impl storage::KeyList for BinReplicatorAdapter {
             if primary_append_res.is_err() {
                 continue;
             }
+            // try appending to second replica
             for j in i + 1..end {
                 let secondary_backend_index = j % backs.len();
                 let secondary_backend_addr = &backs[secondary_backend_index];
@@ -147,7 +190,6 @@ impl storage::KeyList for BinReplicatorAdapter {
                 }
                 return Ok(true);
             }
-            return Err(Box::new(NotEnoughServers));
         }
         return Err(Box::new(NotEnoughServers));
     }
@@ -202,7 +244,6 @@ impl storage::KeyList for BinReplicatorAdapter {
                 }
                 return Ok(ret_val);
             }
-            return Err(Box::new(NotEnoughServers));
         }
         return Err(Box::new(NotEnoughServers));
     }
@@ -211,25 +252,81 @@ impl storage::KeyList for BinReplicatorAdapter {
         let backs = self.backs.clone();
         let start = self.hash_index as usize;
         let end = backs.len() + self.hash_index as usize;
+        let mut primary_answer: Vec<String>;
+        let mut secondary_answer: Vec<String>;
+        let wrapped_prefx = format!("{}{}", LIST_LOG_PREFIX, p.prefix);
+        let query_pattern = storage::Pattern {
+            prefix: wrapped_prefx,
+            suffix: p.suffix.to_string(),
+        };
+
         for i in start..end {
-            let backend_index = i % backs.len();
-            let backend_addr = &backs[backend_index];
-            let bin_prefix_adapter = BinPrefixAdapter::new(&backend_addr, &self.bin.to_string());
-            let wrapped_prefx = format!("{}{}", LIST_LOG_PREFIX, p.prefix);
-            let key_retrieved_res = bin_prefix_adapter
-                .list_keys(&storage::Pattern {
-                    prefix: wrapped_prefx,
-                    suffix: p.suffix.to_string(),
-                })
-                .await;
-            if key_retrieved_res.is_err() {
+            let primary_backend_index = i % backs.len();
+            let primary_backend_addr = &backs[primary_backend_index];
+            let primary_bin_prefix_adapter =
+                BinPrefixAdapter::new(&primary_backend_addr, &self.bin.to_string());
+            let wrapped_key = format!("{}{}", LIST_LOG_PREFIX, key);
+            let primary_list_retrieved_res =
+                primary_bin_prefix_adapter.list_get(&wrapped_key).await;
+            if primary_list_retrieved_res.is_err() {
                 continue;
             }
-            return key_retrieved_res;
+            let primary_keys_retrieved_res = primary_bin_prefix_adapter
+                .list_keys(&query_pattern)
+                .await;
+            if primary_keys_retrieved_res.is_err() {
+                continue;
+            }
+            let primary_list_retrieved = primary_list_retrieved_res.unwrap().0;
+            let mut primary_list_dedup = vec![];
+            let mut primary_clock_id_set = HashSet::new();
+            let mut secondary_list_dedup = vec![];
+            let mut secondary_clock_id_set = HashSet::new();
+
+            for element in primary_list_retrieved {
+                let log_entry: SortableLogRecord = serde_json::from_str(&element).unwrap();
+                if primary_clock_id_set.contains(&log_entry.clock_id) {
+                    continue;
+                }
+                primary_clock_id_set.insert(log_entry.clock_id);
+                primary_list_dedup.push(log_entry);
+            }
+
+            for j in i + 1..end {
+                let secondary_backend_index = j % backs.len();
+                let secondary_backend_addr = &backs[secondary_backend_index];
+                let secondary_bin_prefix_adapter =
+                    BinPrefixAdapter::new(&secondary_backend_addr, &self.bin.to_string());
+                let secondary_list_retrieved_res =
+                    secondary_bin_prefix_adapter.list_get(&wrapped_key).await;
+                if secondary_list_retrieved_res.is_err() {
+                    continue;
+                }
+                let secondary_keys_retrieved_res = secondary_bin_prefix_adapter
+                    .list_keys(&query_pattern)
+                    .await;
+                if secondary_keys_retrieved_res.is_err() {
+                    continue;
+                }
+                let second_list_retrieved = secondary_list_retrieved_res.unwrap().0;
+                for element in second_list_retrieved {
+                    let log_entry: SortableLogRecord = serde_json::from_str(&element).unwrap();
+                    if secondary_clock_id_set.contains(&log_entry.clock_id) {
+                        continue;
+                    }
+                    secondary_clock_id_set.insert(log_entry.clock_id);
+                    secondary_list_dedup.push(log_entry);
+                }
+                break;
+            }
+
+            if primary_list_dedup.len() >= secondary_list_dedup.len() {
+                return primary_keys_retrieved_res;
+            }
+            return secondary_keys_retrieved_res;
         }
         return Err(Box::new(NotEnoughServers));
     }
-}
 
 #[async_trait]
 impl storage::Storage for BinReplicatorAdapter {
