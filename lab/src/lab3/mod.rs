@@ -173,6 +173,7 @@ mod bin_prefix_adapter;
 mod bin_replicator_adapter;
 mod client;
 mod frontend_server;
+mod keeper_rpc_receiver;
 mod keeper_server;
 mod lab;
 pub use crate::lab3::lab::new_bin_client;
