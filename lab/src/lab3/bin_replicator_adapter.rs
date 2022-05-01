@@ -63,12 +63,12 @@ impl storage::KeyString for BinReplicatorAdapter {
 
 #[async_trait]
 pub trait BinReplicatorHelper {
-    async fn get_replicas_addresses(&self) -> (Option<BinPrefixAdapter>, Option<BinPrefixAdapter>);
+    async fn get_replicas_access(&self) -> (Option<BinPrefixAdapter>, Option<BinPrefixAdapter>);
 }
 
 #[async_trait]
 impl BinReplicatorHelper for BinReplicatorAdapter {
-    async fn get_replicas_addresses(&self) -> (Option<BinPrefixAdapter>, Option<BinPrefixAdapter>) {
+    async fn get_replicas_access(&self) -> (Option<BinPrefixAdapter>, Option<BinPrefixAdapter>) {
         let backs = self.backs.clone();
         let start = self.hash_index as usize;
         let end = start + backs.len();
@@ -106,8 +106,7 @@ impl storage::KeyList for BinReplicatorAdapter {
     async fn list_get(&self, key: &str) -> TribResult<storage::List> {
         let wrapped_key = format!("{}{}", LIST_LOG_PREFIX, key);
 
-        let (primary_adapter_option, secondary_adapter_option) =
-            self.get_replicas_addresses().await;
+        let (primary_adapter_option, secondary_adapter_option) = self.get_replicas_access().await;
         if primary_adapter_option.is_none() {
             return Err(Box::new(NotEnoughServers));
         }
@@ -166,8 +165,7 @@ impl storage::KeyList for BinReplicatorAdapter {
 
     async fn list_append(&self, kv: &storage::KeyValue) -> TribResult<bool> {
         let wrapped_key = format!("{}{}", LIST_LOG_PREFIX, kv.key.to_string());
-        let (primary_adapter_option, secondary_adapter_option) =
-            self.get_replicas_addresses().await;
+        let (primary_adapter_option, secondary_adapter_option) = self.get_replicas_access().await;
         if primary_adapter_option.is_none() {
             return Err(Box::new(NotEnoughServers));
         }
@@ -214,8 +212,7 @@ impl storage::KeyList for BinReplicatorAdapter {
     async fn list_remove(&self, kv: &storage::KeyValue) -> TribResult<u32> {
         let wrapped_key = format!("{}{}", LIST_LOG_PREFIX, kv.key);
 
-        let (primary_adapter_option, secondary_adapter_option) =
-            self.get_replicas_addresses().await;
+        let (primary_adapter_option, secondary_adapter_option) = self.get_replicas_access().await;
         if primary_adapter_option.is_none() {
             return Err(Box::new(NotEnoughServers));
         }
@@ -272,8 +269,7 @@ impl storage::KeyList for BinReplicatorAdapter {
     async fn list_keys(&self, p: &storage::Pattern) -> TribResult<storage::List> {
         let wrapped_prefx = format!("{}{}", LIST_LOG_PREFIX, p.prefix);
 
-        let (primary_adapter_option, secondary_adapter_option) =
-            self.get_replicas_addresses().await;
+        let (primary_adapter_option, secondary_adapter_option) = self.get_replicas_access().await;
         if primary_adapter_option.is_none() {
             return Err(Box::new(NotEnoughServers));
         }

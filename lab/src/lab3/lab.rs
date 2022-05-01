@@ -36,8 +36,25 @@ pub async fn new_bin_client(backs: Vec<String>) -> TribResult<Box<dyn BinStorage
 
 #[allow(unused_variables)]
 pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
-    let keeper = KeeperServer::new(kc.addrs[0].to_string(), &kc.backs.clone());
-    let mut interval = time::interval(time::Duration::from_secs(1));
+    let backs = kc.backs.clone();
+    let mut backs_status = vec![];
+    for ind in 0..backs.len() {
+        let client = StorageClient::new(backs[ind].as_str());
+        let res = client.clock(0).await;
+        if res.is_err() {
+            backs_status.push(false);
+        } else {
+            backs_status.push(true);
+        }
+    }
+    let keeper = KeeperServer::new(
+        kc.addrs[kc.this].to_string(),
+        &kc.backs.clone(),
+        backs_status,
+    );
+    let mut broadcast_logical_interval = time::interval(time::Duration::from_secs(1));
+    let mut migrate_interval = time::interval(time::Duration::from_secs(5));
+
     match kc.ready {
         Some(ready_chan) => {
             let _ = ready_chan.clone().send(true);
@@ -48,7 +65,10 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
     match kc.shutdown {
         Some(mut shut_chan) => loop {
             tokio::select! {
-                _ = interval.tick() => {
+                _ = migrate_interval.tick() => {
+                    let _ = keeper.check_migration().await;
+                }
+                _ = broadcast_logical_interval.tick() => {
                     let _ = keeper.broadcast_logical_clock().await;
                 }
                 _ = shut_chan.recv() => {
@@ -58,7 +78,10 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
         },
         None => loop {
             tokio::select! {
-                _ = interval.tick() => {
+                _ = migrate_interval.tick() => {
+                    let _ = keeper.check_migration().await;
+                }
+                _ = broadcast_logical_interval.tick() => {
                     let _ = keeper.broadcast_logical_clock().await;
                 }
             }
