@@ -80,7 +80,7 @@ impl KeeperHelper for KeeperServer {
         for i in start + 1..end {
             let peer_index = i % NUM_KEEPERS_MAX;
             let peer_addr = format!("http://{}", &self.keepers[peer_index]);
-            let client = KeeperServiceClient::connect(peer_addr).await?;
+            let mut client = KeeperServiceClient::connect(peer_addr).await?;
             let resp_res = client.ping(keeper::Heartbeat { value: true }).await;
             if resp_res.is_err() {
                 continue;
