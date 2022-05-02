@@ -18,7 +18,7 @@ pub trait KeeperMigrationHelper {
         joined_node_index: usize,
         back_status: Vec<bool>,
     ) -> TribResult<()>;
-    async fn migrate_from_crashed_node(
+    async fn migrate_to_left_node(
         &self,
         leave_node_index: usize,
         back_status: Vec<bool>,
@@ -136,14 +136,115 @@ impl KeeperMigrationHelper for KeeperServer {
         joined_node_index: usize,
         back_status: Vec<bool>,
     ) -> TribResult<()> {
-        todo!();
+        let backs_len = self.backs.len();
+        let mut index = joined_node_index + backs_len - 1;
+        let mut interval_start: usize = 0;
+        let mut interval_end: usize = joined_node_index as usize;
+        while index >= joined_node_index {
+            if back_status[index % backs_len] {
+                if index == joined_node_index {
+                    // if the predecessor is itself, which means it is the only node.
+                    return Ok(());
+                }
+                index = index - 1;
+                // find the second predecessor
+                while index >= joined_node_index {
+                    if back_status[index % backs_len] {
+                        interval_start = index % backs_len as usize;
+                        break;
+                    }
+                    index = index - 1;
+                }
+                break;
+            }
+            index = index - 1;
+        }
+        // exclude start itself
+        interval_start = (interval_start + 1) % backs_len;
+        index = joined_node_index + 1;
+        // find the successor, and fetch all the data from successor
+        while index <= joined_node_index + backs_len {
+            if back_status[index % backs_len] {
+                self.migrate_data(
+                    index % backs_len,
+                    joined_node_index,
+                    interval_start,
+                    interval_end,
+                )
+                .await?;
+            }
+            index = index + 1;
+        }
+        Ok(())
     }
 
-    async fn migrate_from_crashed_node(
+    async fn migrate_to_left_node(
         &self,
-        leave_node_index: usize,
+        left_node_index: usize,
         back_status: Vec<bool>,
     ) -> TribResult<()> {
-        todo!();
+        let backs_len = self.backs.len();
+        let mut interval_start: usize = 0;
+        let mut interval_end: usize = left_node_index as usize;
+        let mut successor: usize = 0;
+        let mut second_successor: usize = 0;
+        let mut index = left_node_index + 1;
+        let mut first_predecessor: usize = 0;
+        let mut second_predecessor: usize = 0;
+        // find the first and second successor
+        while index <= left_node_index + backs_len {
+            // if cannot find succesor, which means it is the last node in system, crash
+            if index % backs_len == left_node_index {
+                return Ok(());
+            }
+            if back_status[index % backs_len] {
+                successor = index % backs_len;
+                index = index + 1;
+                while index <= left_node_index + backs_len {
+                    // if cannot find second successor, which means there is only one successor left
+                    if index % backs_len == left_node_index {
+                        return Ok(());
+                    }
+                    if back_status[index % backs_len] {
+                        second_successor = index % backs_len;
+                        break;
+                    }
+                }
+                break;
+            }
+            index = index + 1;
+        }
+        // try to find the first and second predecessor of successor
+        index = successor + backs_len - 1;
+        while index >= successor {
+            if index == successor {
+                // if the predecessor is itself, which means it is the only node.
+                return Ok(());
+            }
+            if back_status[index % backs_len] {
+                first_predecessor = index % backs_len;
+                index = index - 1;
+                // find the second predecessor
+                while index >= successor {
+                    if back_status[index % backs_len] {
+                        second_predecessor = index % backs_len;
+                        break;
+                    }
+                    index = index - 1;
+                }
+                break;
+            }
+            index = index - 1;
+        }
+        // exclude start itself
+        interval_start = (second_predecessor + 1) % backs_len;
+        interval_end = first_predecessor;
+        self.migrate_data(first_predecessor, successor, interval_start, interval_end)
+            .await?;
+        interval_start = (first_predecessor + 1) % backs_len;
+        interval_end = left_node_index;
+        self.migrate_data(successor, second_successor, interval_start, interval_end)
+            .await?;
+        Ok(())
     }
 }
