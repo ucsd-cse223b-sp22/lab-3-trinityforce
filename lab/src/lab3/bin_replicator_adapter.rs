@@ -1,4 +1,5 @@
 use super::bin_prefix_adapter::BinPrefixAdapter;
+use super::constants::{LIST_LOG_PREFIX, STR_LOG_PREFIX, VERSION_LOG_KEY_NAME};
 use serde::{Deserialize, Serialize};
 use std::cmp::{self, min, Ordering};
 use std::collections::HashSet;
@@ -24,10 +25,6 @@ pub struct SortableLogRecord {
     pub wrapped_string: String,
     pub clock_id: u64,
 }
-
-pub const STR_LOG_PREFIX: &str = "STR::";
-pub const LIST_LOG_PREFIX: &str = "LIST::";
-pub const VERSION_LOG_KEY_NAME: &str = "VERSIONLOG";
 
 pub struct BinReplicatorAdapter {
     pub hash_index: u32,
