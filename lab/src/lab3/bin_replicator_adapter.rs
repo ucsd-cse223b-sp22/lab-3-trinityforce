@@ -1,5 +1,6 @@
 use super::bin_prefix_adapter::BinPrefixAdapter;
-use super::constants::{LIST_LOG_PREFIX, STR_LOG_PREFIX, VERSION_LOG_KEY_NAME};
+use super::constants::{LIST_LOG_PREFIX, STR_LOG_PREFIX, VALIDATION_BIT_KEY};
+use super::new_client;
 use serde::{Deserialize, Serialize};
 use std::cmp::{self, min, Ordering};
 use std::collections::HashSet;
@@ -30,14 +31,16 @@ pub struct BinReplicatorAdapter {
     pub hash_index: u32,
     pub backs: Vec<String>,
     pub bin: String,
+    back_status: Vec<bool>,
 }
 
 impl BinReplicatorAdapter {
-    pub fn new(hash_index: u32, backs: Vec<String>, bin: &str) -> Self {
+    pub fn new(hash_index: u32, backs: Vec<String>, bin: &str, back_status: Vec<bool>) -> Self {
         Self {
             hash_index,
             backs: backs.clone(),
             bin: bin.to_string(),
+            back_status: back_status.clone(),
         }
     }
 }
@@ -60,37 +63,81 @@ impl storage::KeyString for BinReplicatorAdapter {
 
 #[async_trait]
 pub trait BinReplicatorHelper {
-    async fn get_replicas_access(&self) -> (Option<BinPrefixAdapter>, Option<BinPrefixAdapter>);
+    async fn get_read_replicas_access(&self) -> Option<BinPrefixAdapter>; // starting from returning the first living valid machine
+    async fn get_write_replicas_access(
+        &self,
+    ) -> (Option<BinPrefixAdapter>, Option<BinPrefixAdapter>); // return two first trues from back_status
 }
 
 #[async_trait]
 impl BinReplicatorHelper for BinReplicatorAdapter {
-    async fn get_replicas_access(&self) -> (Option<BinPrefixAdapter>, Option<BinPrefixAdapter>) {
+    async fn get_read_replicas_access(&self) -> Option<BinPrefixAdapter> {
+        let backs = self.backs.clone();
+        let start = self.hash_index as usize;
+        let end = start + backs.len();
+        for i in start..end {
+            let backend_index = i % backs.len();
+            if self.back_status[backend_index] == false {
+                continue;
+            }
+            let backend_addr = &backs[backend_index];
+            let pinger = new_client(backend_addr).await.unwrap();
+            let resp = pinger.get(VALIDATION_BIT_KEY).await;
+            if resp.is_err() {
+                continue;
+            }
+            let validation = resp.unwrap();
+            if validation == None {
+                continue;
+            }
+            return Some(BinPrefixAdapter::new(&backend_addr, &self.bin.to_string()));
+        }
+        return None;
+    }
+
+    async fn get_write_replicas_access(
+        &self,
+    ) -> (Option<BinPrefixAdapter>, Option<BinPrefixAdapter>) {
         let backs = self.backs.clone();
         let start = self.hash_index as usize;
         let end = start + backs.len();
         let mut primary_adapter_option = None;
         let mut secondary_adapter_option = None;
         for i in start..end {
+            // start scanning the primary replica
             let primary_backend_index = i % backs.len();
-            let primary_backend_addr = &backs[primary_backend_index];
-            let primary_bin_prefix_adapter =
-                BinPrefixAdapter::new(&primary_backend_addr, &self.bin.to_string());
-            let primary_resp = primary_bin_prefix_adapter.clock(0).await;
-            if primary_resp.is_err() {
+            if self.back_status[primary_backend_index] == false {
                 continue;
             }
-            primary_adapter_option = Some(primary_bin_prefix_adapter);
+            let primary_backend_addr = &backs[primary_backend_index];
+            let primary_pinger = new_client(primary_backend_addr).await.unwrap();
+            let primary_resp = primary_pinger.get("DUMMY").await;
+            if primary_resp.is_err() {
+                primary_adapter_option = None;
+            } else {
+                primary_adapter_option = Some(BinPrefixAdapter::new(
+                    &primary_backend_addr,
+                    &self.bin.to_string(),
+                ));
+            }
+
+            // start scanning the secondary replica
             for j in i + 1..end {
                 let secondary_backend_index = j % backs.len();
-                let secondary_backend_addr = &backs[secondary_backend_index];
-                let secondary_bin_prefix_adapter =
-                    BinPrefixAdapter::new(&secondary_backend_addr, &self.bin.to_string());
-                let secondary_resp = secondary_bin_prefix_adapter.clock(0).await;
-                if secondary_resp.is_err() {
+                if self.back_status[secondary_backend_index] == false {
                     continue;
                 }
-                secondary_adapter_option = Some(secondary_bin_prefix_adapter);
+                let secondary_backend_addr = &backs[secondary_backend_index];
+                let secondary_pinger = new_client(secondary_backend_addr).await.unwrap();
+                let secondary_resp = secondary_pinger.get("DUMMY").await;
+                if secondary_resp.is_err() {
+                    secondary_adapter_option = None;
+                } else {
+                    secondary_adapter_option = Some(BinPrefixAdapter::new(
+                        &secondary_backend_addr,
+                        &self.bin.to_string(),
+                    ));
+                }
                 break;
             }
         }
@@ -108,6 +155,10 @@ impl storage::KeyList for BinReplicatorAdapter {
             return Err(Box::new(NotEnoughServers));
         }
         let primary_bin_prefix_adapter = primary_adapter_option.unwrap();
+        let primary_validation_getter = new_client(primary_bin_prefix_adapter.addr).await?;
+
+        let primary_validation = primary_validation_getter.get(VALIDATION_BIT_KEY).await?;
+
         let primary_version = primary_bin_prefix_adapter
             .list_get(VERSION_LOG_KEY_NAME)
             .await?

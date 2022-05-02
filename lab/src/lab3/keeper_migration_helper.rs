@@ -1,4 +1,4 @@
-use super::constants::{LIST_LOG_PREFIX, STR_LOG_PREFIX, VERSION_LOG_KEY_NAME};
+use super::constants::{LIST_LOG_PREFIX, STR_LOG_PREFIX, VALIDATION_BIT_KEY};
 use super::keeper_server::KeeperServer;
 use super::new_client;
 use std::cmp;

@@ -8,7 +8,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::mpsc::{self, SyncSender};
 use tokio::sync::RwLock;
 use tribbler::err::TribResult;
-use tribbler::storage::Storage;
+use tribbler::storage::{KeyString, Storage};
 
 pub struct KeeperServer {
     pub backs: Vec<String>,
@@ -63,17 +63,13 @@ impl KeeperHelper for KeeperServer {
             }
             smallest_keeper_alive = cmp::min(smallest_keeper_alive, i);
         }
-        if smallest_keeper_alive != self.this {
-            // only smallest keeper alive is in charge of migration
-            return Ok(());
-        }
         // scan 300
         let mut node_join_migration_index = None;
         let mut node_leave_migration_index = None;
         let mut back_status = self.backs_status_mut.write().await;
         for i in 0..self.backs.len() {
             let client = StorageClient::new(self.backs[i].as_str());
-            let clock_res = client.clock(0).await;
+            let clock_res = client.get("DUMMY").await;
             if clock_res.is_err() {
                 // server is now down
                 if (*back_status)[i] == true {
@@ -89,6 +85,10 @@ impl KeeperHelper for KeeperServer {
                 }
                 (*back_status)[i] = true;
             }
+        }
+        if smallest_keeper_alive != self.this {
+            // only smallest keeper alive is in charge of migration
+            return Ok(());
         }
         let back_status_copy = back_status.clone();
         drop(back_status);
@@ -117,6 +117,24 @@ impl KeeperHelper for KeeperServer {
     }
 
     async fn broadcast_logical_clock(&self) -> TribResult<()> {
+        let mut largest_keeper_alive = self.this;
+        for i in 0..self.keepers.len() {
+            if i == self.this {
+                continue;
+            }
+            let peer_addr = format!("http://{}", &self.keepers[i]);
+            let mut client = KeeperServiceClient::connect(peer_addr).await?;
+            let resp_res = client.ping(keeper::Heartbeat { value: true }).await;
+            if resp_res.is_err() {
+                continue;
+            }
+            largest_keeper_alive = cmp::max(largest_keeper_alive, i);
+        }
+        if largest_keeper_alive != self.this {
+            // only smallest keeper alive is in charge of migration
+            return Ok(());
+        }
+
         let len = self.backs.len();
 
         let mut max_clock: u64 = 0;

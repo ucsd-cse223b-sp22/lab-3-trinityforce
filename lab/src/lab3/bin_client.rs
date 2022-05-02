@@ -78,7 +78,10 @@ impl BinStorage for BinStorageClient {
         let backs = self.backs.clone();
         let len = backs.len() as u64;
         let ind = (hash_res % len) as u32;
-        let storage_bin_prefix_adapter = BinReplicatorAdapter::new(ind, backs.clone(), name);
+        let mut back_status = self.back_status_mut.read().await;
+        let back_status_copy = (*back_status).clone();
+        let storage_bin_prefix_adapter =
+            BinReplicatorAdapter::new(ind, backs.clone(), name, back_status_copy);
         // println!("{}", target_back_addr);
         Ok(Box::new(storage_bin_prefix_adapter))
     }
