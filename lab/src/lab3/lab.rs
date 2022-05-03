@@ -1,11 +1,13 @@
 use crate::lab3::keeper_server::KeeperHelper;
 
+use super::constants::VALIDATION_BIT_KEY;
 use super::keeper_rpc_receiver::KeeperRPCReceiver;
 use super::keeper_server::KeeperServer;
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time;
+use tribbler::storage;
 use tribbler::storage::BinStorage;
 use tribbler::trib;
 use tribbler::{config::BackConfig, err::TribResult};
@@ -41,13 +43,30 @@ pub async fn new_bin_client(backs: Vec<String>) -> TribResult<Box<dyn BinStorage
 pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
     let backs = kc.backs.clone();
     let mut backs_status = vec![];
+    let mut num_alive = 0;
+    let mut num_invalid = 0;
     for ind in 0..backs.len() {
-        let client = StorageClient::new(backs[ind].as_str());
-        let res = client.clock(0).await;
+        let client = new_client(backs[ind].as_str()).await?;
+        let res = client.get(VALIDATION_BIT_KEY).await;
         if res.is_err() {
             backs_status.push(false);
         } else {
             backs_status.push(true);
+            num_alive += 1;
+            if res.unwrap() == None {
+                num_invalid += 1;
+            }
+        }
+    }
+    if num_invalid == num_alive {
+        for ind in 0..backs.len() {
+            let client = new_client(backs[ind].as_str()).await?;
+            let _ = client
+                .set(&storage::KeyValue {
+                    key: VALIDATION_BIT_KEY.to_string(),
+                    value: "true".to_string(),
+                })
+                .await?;
         }
     }
     let keeper = KeeperServer::new(kc.this, kc.addrs.clone(), &kc.backs.clone(), backs_status);

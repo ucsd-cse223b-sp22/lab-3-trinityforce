@@ -77,8 +77,8 @@ pub trait BinReplicatorHelper {
     ) -> TribResult<Vec<SortableLogRecord>>; // Get all logs. Sort and dedup.
     async fn append_log_action(
         &self,
-        primary_adapter_option: Option<BinPrefixAdapter>,
-        secondary_adapter_option: Option<BinPrefixAdapter>,
+        primary_adapter_option: &Option<BinPrefixAdapter>,
+        secondary_adapter_option: &Option<BinPrefixAdapter>,
         wrapped_key: &str,
         kv: &storage::KeyValue,
         action: &str,
@@ -185,19 +185,21 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
 
     async fn append_log_action(
         &self,
-        primary_adapter_option: Option<BinPrefixAdapter>,
-        secondary_adapter_option: Option<BinPrefixAdapter>,
+        primary_adapter_option: &Option<BinPrefixAdapter>,
+        secondary_adapter_option: &Option<BinPrefixAdapter>,
         wrapped_key: &str,
         kv: &storage::KeyValue,
         action: &str,
     ) -> TribResult<(u64, u64)> {
         // Try to append to entry in the primary
+        let mut is_primary_none = true;
         let mut primary_clock_id = 0;
         let mut secondary_clock_id = 0;
         let mut log_entry_str = String::new();
 
         if primary_adapter_option.is_some() {
-            let primary_bin_prefix_adapter = primary_adapter_option.unwrap();
+            is_primary_none = false;
+            let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
             // get primary clock as unique id
             primary_clock_id = primary_bin_prefix_adapter.clock(0).await?;
             let log_entry = SortableLogRecord {
@@ -216,10 +218,10 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
 
         // Try to append to entry in the secondary
         if secondary_adapter_option.is_some() {
-            let secondary_bin_prefix_adapter = secondary_adapter_option.unwrap();
+            let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
             // get secondary clock as unique id if primary is none
             secondary_clock_id = secondary_bin_prefix_adapter.clock(primary_clock_id).await?;
-            if primary_adapter_option.is_none() {
+            if is_primary_none {
                 let log_entry = SortableLogRecord {
                     clock_id: secondary_clock_id,
                     wrapped_string: kv.value.to_string(),
@@ -292,8 +294,8 @@ impl storage::KeyList for BinReplicatorAdapter {
         // Try to append the entry in primary and secondary
         let _ = self
             .append_log_action(
-                primary_adapter_option,
-                secondary_adapter_option,
+                &primary_adapter_option,
+                &secondary_adapter_option,
                 &wrapped_key,
                 kv,
                 APPEND_ACTION,
@@ -316,8 +318,8 @@ impl storage::KeyList for BinReplicatorAdapter {
         // Try to remove the entry in primary and secondary
         let (primary_clock_id, secondary_clock_id) = self
             .append_log_action(
-                primary_adapter_option,
-                secondary_adapter_option,
+                &primary_adapter_option,
+                &secondary_adapter_option,
                 &wrapped_key,
                 kv,
                 REMOVE_ACTION,
