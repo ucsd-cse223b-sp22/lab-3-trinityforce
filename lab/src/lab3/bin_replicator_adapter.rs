@@ -8,7 +8,6 @@ use std::cmp::{self, min, Ordering};
 use std::collections::HashSet;
 use std::error;
 use std::fmt;
-use std::sync::atomic::Ordering;
 use tribbler::err::TribResult;
 use tribbler::storage::{self, KeyList, Storage};
 
@@ -252,13 +251,14 @@ impl storage::KeyList for BinReplicatorAdapter {
         }
         let bin_prefix_adapter = adapter_option.unwrap();
 
+        // Get all logs. Sort and dedup.
         let logs_struct = self
             .get_sorted_log_struct(bin_prefix_adapter, &wrapped_key)
             .await?;
 
         // Replay the whole log.
         let mut replay_set = HashSet::new();
-        for element in logs_struct {
+        for element in logs_struct.iter() {
             if element.action == APPEND_ACTION {
                 replay_set.insert(element.clock_id);
             } else if element.action == REMOVE_ACTION {
@@ -289,6 +289,17 @@ impl storage::KeyList for BinReplicatorAdapter {
             return Err(Box::new(NotEnoughServers));
         }
 
+        // Try to append the entry in primary and secondary
+        let _ = self
+            .append_log_action(
+                primary_adapter_option,
+                secondary_adapter_option,
+                &wrapped_key,
+                kv,
+                APPEND_ACTION,
+            )
+            .await?;
+
         return Ok(true);
     }
 
@@ -302,89 +313,68 @@ impl storage::KeyList for BinReplicatorAdapter {
             return Err(Box::new(NotEnoughServers));
         }
 
-        // Try to remove the entry in primary
-        let mut num_removal = 0;
-
-        let mut primary_clock_id = 0;
-        let mut secondary_clock_id = 0;
-        let mut log_entry_str = String::new();
-
-        if primary_adapter_option.is_some() {
-            let primary_bin_prefix_adapter = primary_adapter_option.unwrap();
-            // get primary clock as unique id
-            primary_clock_id = primary_bin_prefix_adapter.clock(0).await?;
-            let log_entry = SortableLogRecord {
-                clock_id: primary_clock_id,
-                wrapped_string: kv.value.to_string(),
-                action: REMOVE_ACTION.to_string(),
-            };
-            log_entry_str = serde_json::to_string(&log_entry)?;
-            let _ = primary_bin_prefix_adapter
-                .list_append(&storage::KeyValue {
-                    key: wrapped_key.to_string(),
-                    value: log_entry_str.to_string(),
-                })
-                .await?;
-        }
-
-        // Try to remove the entry in secondary
-        if secondary_adapter_option.is_some() {
-            let secondary_bin_prefix_adapter = secondary_adapter_option.unwrap();
-            secondary_clock_id = secondary_bin_prefix_adapter.clock(primary_clock_id).await?;
-            if primary_adapter_option.is_none() {
-                let log_entry = SortableLogRecord {
-                    clock_id: secondary_clock_id,
-                    wrapped_string: kv.value.to_string(),
-                    action: REMOVE_ACTION.to_string(),
-                };
-                log_entry_str = serde_json::to_string(&log_entry)?;
-            }
-            let _ = secondary_bin_prefix_adapter
-                .list_append(&storage::KeyValue {
-                    key: wrapped_key.to_string(),
-                    value: log_entry_str.to_string(),
-                })
-                .await?;
-        }
+        // Try to remove the entry in primary and secondary
+        let (primary_clock_id, secondary_clock_id) = self
+            .append_log_action(
+                primary_adapter_option,
+                secondary_adapter_option,
+                &wrapped_key,
+                kv,
+                REMOVE_ACTION,
+            )
+            .await?;
 
         // Try to count the removal number. Assume removal number of primary is always greater or equal to that in secondary.
+        let mut logs_struct = vec![];
+        let mut chosen_clock_id = 0;
+
         if primary_adapter_option.is_some() {
             let primary_bin_prefix_adapter = primary_adapter_option.unwrap();
             // Get all logs. Sort and dedup.
-            let logs_string = primary_bin_prefix_adapter.list_get(&wrapped_key).await?.0;
-            let mut logs_struct = vec![];
-            for element in logs_string {
-                let log_entry: SortableLogRecord = serde_json::from_str(&element).unwrap();
-                logs_struct.push(log_entry);
-            }
-            logs_struct.sort_unstable_by(|a, b| {
-                if a.clock_id < b.clock_id {
-                    return Ordering::Less;
-                } else if a.clock_id > b.clock_id {
-                    return Ordering::Greater;
-                }
-                return Ordering::Equal;
-            });
-            logs_struct.dedup_by(|a, b| a.clock_id == b.clock_id); // Is it necessary to dedup?
+            logs_struct = self
+                .get_sorted_log_struct(primary_bin_prefix_adapter, &wrapped_key)
+                .await?;
+            chosen_clock_id = primary_clock_id;
         } else {
+            let secondary_bin_prefix_adapter = secondary_adapter_option.unwrap();
+            // Get all logs. Sort and dedup.
+            logs_struct = self
+                .get_sorted_log_struct(secondary_bin_prefix_adapter, &wrapped_key)
+                .await?;
+            chosen_clock_id = secondary_clock_id;
         }
 
-        return Ok(num_removal);
+        let mut replay_set = HashSet::new();
+        for element in logs_struct {
+            if element.clock_id == chosen_clock_id {
+                break;
+            }
+            if element.wrapped_string != kv.value {
+                continue;
+            }
+            if element.action == APPEND_ACTION {
+                replay_set.insert(element.clock_id);
+            } else if element.action == REMOVE_ACTION {
+                replay_set.remove(&element.clock_id);
+            } else {
+                println!("The operation is not supported!!!"); // Sanity check for action.
+            }
+        }
+
+        return Ok(replay_set.len() as u32);
     }
 
     async fn list_keys(&self, p: &storage::Pattern) -> TribResult<storage::List> {
         let wrapped_prefx = format!("{}{}", LIST_LOG_PREFIX, p.prefix);
 
-        let (primary_adapter_option, secondary_adapter_option) = self.get_replicas_access().await;
+        // Get ther first alive and valid bin.
+        let primary_adapter_option = self.get_read_replicas_access().await;
         if primary_adapter_option.is_none() {
             return Err(Box::new(NotEnoughServers));
         }
+
         let primary_bin_prefix_adapter = primary_adapter_option.unwrap();
-        let primary_version = primary_bin_prefix_adapter
-            .list_get(VERSION_LOG_KEY_NAME)
-            .await?
-            .0
-            .len();
+
         let primary_keys = primary_bin_prefix_adapter
             .list_keys(&storage::Pattern {
                 prefix: wrapped_prefx.to_string(),
@@ -393,41 +383,10 @@ impl storage::KeyList for BinReplicatorAdapter {
             .await?
             .0;
 
-        let mut secondary_version = 0;
-        let mut secondary_keys = vec![];
-        if secondary_adapter_option.is_some() {
-            let secondary_bin_prefix_adapter = secondary_adapter_option.unwrap();
-            secondary_version = secondary_bin_prefix_adapter
-                .list_get(VERSION_LOG_KEY_NAME)
-                .await?
-                .0
-                .len();
-            secondary_keys = secondary_bin_prefix_adapter
-                .list_keys(&storage::Pattern {
-                    prefix: wrapped_prefx.to_string(),
-                    suffix: p.suffix.to_string(),
-                })
-                .await?
-                .0;
-        }
-
-        let mut keys_vec = vec![];
-        if primary_version >= secondary_version {
-            keys_vec = primary_keys;
-        } else {
-            keys_vec = secondary_keys;
-        }
         let mut ret_val = vec![];
-        for element in keys_vec {
+        for element in primary_keys {
             let element_str = element.as_str();
-            let mut extracted_key = "";
-            if element_str.starts_with(LIST_LOG_PREFIX) {
-                extracted_key = &element_str[LIST_LOG_PREFIX.len()..];
-            } else if element_str.starts_with(STR_LOG_PREFIX) {
-                extracted_key = &element_str[STR_LOG_PREFIX.len()..];
-            } else if element_str == VERSION_LOG_KEY_NAME {
-                continue;
-            }
+            let extracted_key = &element_str[LIST_LOG_PREFIX.len()..];
             ret_val.push(extracted_key.to_string());
         }
         return Ok(storage::List(ret_val));
@@ -437,19 +396,37 @@ impl storage::KeyList for BinReplicatorAdapter {
 #[async_trait]
 impl storage::Storage for BinReplicatorAdapter {
     async fn clock(&self, at_least: u64) -> TribResult<u64> {
-        let backs = self.backs.clone();
-        let start = self.hash_index as usize;
-        let end = backs.len() + self.hash_index as usize;
-        for i in start..end {
-            let backend_index = i % backs.len();
-            let backend_addr = &backs[backend_index];
-            let bin_prefix_adapter = BinPrefixAdapter::new(&backend_addr, &self.bin.to_string());
-            let clock_res = bin_prefix_adapter.clock(at_least).await;
-            if clock_res.is_err() {
-                continue;
-            }
-            return Ok(clock_res.unwrap());
+        // Get first two "valid" bins.
+        let (primary_adapter_option, secondary_adapter_option) =
+            self.get_write_replicas_access().await;
+        if primary_adapter_option.is_none() && secondary_adapter_option.is_none() {
+            return Err(Box::new(NotEnoughServers));
         }
-        return Err(Box::new(NotEnoughServers));
+
+        // Sync clock
+        let mut clk = 0;
+        if primary_adapter_option.is_none() {
+            let secondary_bin_prefix_adapter = secondary_adapter_option.unwrap();
+            clk = secondary_bin_prefix_adapter.clock(at_least).await?;
+        } else if secondary_adapter_option.is_none() {
+            let primary_bin_prefix_adapter = primary_adapter_option.unwrap();
+            clk = primary_bin_prefix_adapter.clock(at_least).await?;
+        } else {
+            let primary_bin_prefix_adapter = primary_adapter_option.unwrap();
+            let secondary_bin_prefix_adapter = secondary_adapter_option.unwrap();
+            let primary_pinger = new_client(&primary_bin_prefix_adapter.addr).await.unwrap();
+            // Check whether primary is valid
+            let resp = primary_pinger.get(VALIDATION_BIT_KEY).await;
+            let validation = resp.unwrap();
+            if validation == None {
+                // If primary is not valid, sync primary using backend
+                clk = primary_bin_prefix_adapter.clock(at_least).await?;
+                let _ = secondary_bin_prefix_adapter.clock(clk).await?;
+            } else {
+                clk = secondary_bin_prefix_adapter.clock(at_least).await?;
+                let _ = primary_bin_prefix_adapter.clock(clk).await?;
+            }
+        }
+        Ok(clk)
     }
 }
