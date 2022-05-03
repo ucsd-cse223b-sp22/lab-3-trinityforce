@@ -400,9 +400,8 @@ impl storage::KeyList for BinReplicatorAdapter {
 
         let mut true_keys = vec![];
         for key in potential_keys {
-            let wrapped_key = format!("{}{}", LIST_LOG_PREFIX, key);
             let logs_struct = self
-                .get_sorted_log_struct(&bin_prefix_adapter, &wrapped_key)
+                .get_sorted_log_struct(&bin_prefix_adapter, &key)
                 .await?;
 
             // Replay the whole log.
@@ -412,7 +411,7 @@ impl storage::KeyList for BinReplicatorAdapter {
                     continue;
                 }
                 if element.action == APPEND_ACTION {
-                    let key_str = wrapped_key.as_str();
+                    let key_str = key.as_str();
                     let extracted_key = &key_str[LIST_LOG_PREFIX.len()..];
                     true_keys.push(extracted_key.to_string());
                     break;
