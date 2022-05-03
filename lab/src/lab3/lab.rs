@@ -205,6 +205,6 @@ pub async fn serve_back(config: BackConfig) -> TribResult<()> {
 /// [serve_back] function.
 pub async fn new_client(addr: &str) -> TribResult<Box<dyn Storage>> {
     // let mut client = TribStorageClient::connect(String::from(addr)).await?;
-    let storage_client = StorageClient::new(addr);
+    let storage_client = StorageClient::new(addr, None);
     Ok(Box::new(storage_client))
 }
