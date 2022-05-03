@@ -38,7 +38,7 @@ use async_trait::async_trait;
 #[async_trait]
 pub trait BackStatusScanner {
     async fn scan_backs_status(&self);
-    async fn update_channel_cache(&self, idx: usize) -> TribResult<()>;
+    async fn update_channel_cache(&self, idx: usize) -> TribResult<Channel>;
 }
 
 #[async_trait]
@@ -74,22 +74,25 @@ impl BackStatusScanner for BinStorageClient {
         }
     }
 
-    async fn update_channel_cache(&self, idx: usize) -> TribResult<()> {
+    async fn update_channel_cache(&self, idx: usize) -> TribResult<Channel> {
         let channel_cache_read = self.channel_cache.read().await;
-        if (*channel_cache_read).contains_key(&idx) {
-            return Ok(());
+        let res = (*channel_cache_read).get(&idx);
+        if let Some(chan) = res {
+            return Ok(chan.clone());
         }
         drop(channel_cache_read);
 
         let mut channel_cache_write = self.channel_cache.write().await;
-        if (*channel_cache_write).contains_key(&idx) {
-            return Ok(());
+        let res = (*channel_cache_write).get(&idx);
+        if let Some(chan) = res {
+            Ok(chan.clone())
+        } else {
+            let chan = Endpoint::from_shared(self.backs[idx].clone())?
+                .connect()
+                .await?;
+            (*channel_cache_write).insert(idx, chan.clone());
+            Ok(chan)
         }
-        let chan = Endpoint::from_shared(self.backs[idx].clone())?
-            .connect()
-            .await?;
-        (*channel_cache_write).insert(idx, chan);
-        Ok(())
     }
 }
 
