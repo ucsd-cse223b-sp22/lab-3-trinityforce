@@ -101,6 +101,7 @@ async fn update_channel_cache(
     idx: usize,
     back_addr: String,
 ) -> TribResult<Channel> {
+    let back_addr = format!("http://{}", back_addr);
     let channel_cache_read = channel_cache.read().await;
     let res = (*channel_cache_read).get(&idx);
     if let Some(chan) = res {
