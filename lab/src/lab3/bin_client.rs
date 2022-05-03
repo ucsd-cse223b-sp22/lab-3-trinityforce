@@ -73,6 +73,7 @@ impl BackStatusScanner for BinStorageClient {
 impl BinStorage for BinStorageClient {
     async fn bin(&self, name: &str) -> tribbler::err::TribResult<Box<dyn Storage>> {
         let mut hasher = DefaultHasher::new();
+        self.scan_backs_status().await;
         name.hash(&mut hasher);
         let hash_res = hasher.finish();
         let backs = self.backs.clone();

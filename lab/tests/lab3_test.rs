@@ -19,6 +19,7 @@ use tribbler::{
 };
 
 fn spawn_back(cfg: BackConfig) -> tokio::task::JoinHandle<TribResult<()>> {
+    println!("setting up back");
     tokio::spawn(lab3::serve_back(cfg))
 }
 
@@ -41,9 +42,9 @@ fn generate_random_username(len: usize) -> String {
 
 fn generate_addresses(len: u64, is_back: bool) -> Vec<String> {
     let mut addrs = vec![];
-    let mut prefix = "127.0.0.1:70";
+    let mut prefix = "127.0.0.1:57";
     if is_back {
-        prefix = "127.0.0.1:80";
+        prefix = "127.0.0.1:43";
     }
     for i in 0..len {
         let u32_i : u32 = i as u32;
@@ -113,7 +114,7 @@ async fn shutdown_multiple_channels(shut_chans: Vec<MpscSender<()>>, exclude_ind
 async fn test_single_list_append_one_node_dead() -> TribResult<()> {
     let keeper_addresses = generate_addresses(1, false);
     let backend_addresses = generate_addresses(5, true);
-    let (back_shut_vec, keeper_shut_vec) = setup(backend_addresses.clone(), keeper_addresses).await?;
+    let (back_shut_vec, keeper_shut_vec) = setup(backend_addresses.clone(), keeper_addresses.clone()).await?;
     println!("Begin serve!");
     let bin_client = lab3::new_bin_client(backend_addresses.clone()).await?;
     let adapter = bin_client.bin("alice").await?;
@@ -130,3 +131,5 @@ async fn test_single_list_append_one_node_dead() -> TribResult<()> {
     let _ = shutdown_multiple_channels(back_shut_vec, vec![1]).await;
     Ok(())
 }
+
+// cargo test --package lab --test lab3_test -- test_single_list_append_one_node_dead --exact --nocapture

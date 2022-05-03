@@ -1,4 +1,4 @@
-use super::constants::{LIST_LOG_PREFIX, STR_LOG_PREFIX, VALIDATION_BIT_KEY};
+use super::constants::{LIST_LOG_KEYWORD, STR_LOG_KEYWORD, VALIDATION_BIT_KEY};
 use super::keeper_server::KeeperMigrator;
 use super::new_client;
 use std::cmp;
@@ -52,7 +52,7 @@ impl KeeperMigrationHelper for KeeperMigrator {
             })
             .await?
             .0;
-        println!("extraction: {:?}", keys_list);
+        println!("get all keys in {}: {:?}", addr, keys_list);
         let mut filtered = vec![];
         for element in keys_list {
             let splits = &element.split("::").collect::<Vec<&str>>();
@@ -60,7 +60,7 @@ impl KeeperMigrationHelper for KeeperMigrator {
                 continue;
             }
             let identifier = splits[1];
-            if identifier == LIST_LOG_PREFIX || identifier == STR_LOG_PREFIX {
+            if identifier == LIST_LOG_KEYWORD || identifier == STR_LOG_KEYWORD {
                 filtered.push(element.clone());
             }
         }
@@ -105,6 +105,10 @@ impl KeeperMigrationHelper for KeeperMigrator {
         interval_start: usize,
         interval_end: usize,
     ) -> TribResult<()> {
+        println!(
+            "migration: from {}, to {}, interval start {}, interval end {}",
+            from, to, interval_start, interval_end
+        );
         let addr_from = &self.backs[from];
         let addr_to = &self.backs[to];
         let client_from = new_client(addr_from).await?;
@@ -112,13 +116,18 @@ impl KeeperMigrationHelper for KeeperMigrator {
         let raw_key_list = self.extract_raw_keys_from_addr(addr_from).await?;
         for element in raw_key_list.iter() {
             let bin_name = self.extract_bin_name_from_raw_key(element);
+            println!("bin name: {}, element: {}", &bin_name, &element);
             if bin_name == "" {
                 continue;
             }
             let mut hasher = DefaultHasher::new();
             bin_name.hash(&mut hasher);
-            let hash_res = hasher.finish();
+            let hash_res = hasher.finish() % (self.backs.len() as u64);
             if interval_start < interval_end {
+                println!(
+                    "bin_name: {}, hash_res: {},interval_start: {}, interval_end: {}",
+                    bin_name, hash_res, interval_start, interval_end
+                );
                 if hash_res <= interval_start as u64 || hash_res > interval_end as u64 {
                     continue;
                 }

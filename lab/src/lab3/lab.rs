@@ -157,7 +157,6 @@ pub async fn new_front(
 /// an async function which blocks indefinitely until interrupted serving on
 /// the host and port specified in the [BackConfig] parameter.
 pub async fn serve_back(config: BackConfig) -> TribResult<()> {
-    // let ready_chan = config.ready.unwrap();
     let config_addr = config.addr.to_string();
     let config_addr_str = config_addr.as_str();
     let config_addr_string = config_addr_str.replace("localhost", "127.0.0.1");
