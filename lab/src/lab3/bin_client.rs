@@ -96,6 +96,29 @@ impl BackStatusScanner for BinStorageClient {
     }
 }
 
+async fn update_channel_cache(
+    channel_cache: Arc<RwLock<HashMap<usize, Channel>>>,
+    idx: usize,
+    back_addr: String,
+) -> TribResult<Channel> {
+    let channel_cache_read = channel_cache.read().await;
+    let res = (*channel_cache_read).get(&idx);
+    if let Some(chan) = res {
+        return Ok(chan.clone());
+    }
+    drop(channel_cache_read);
+
+    let mut channel_cache_write = channel_cache.write().await;
+    let res = (*channel_cache_write).get(&idx);
+    if let Some(chan) = res {
+        Ok(chan.clone())
+    } else {
+        let chan = Endpoint::from_shared(back_addr)?.connect().await?;
+        (*channel_cache_write).insert(idx, chan.clone());
+        Ok(chan)
+    }
+}
+
 #[async_trait]
 impl BinStorage for BinStorageClient {
     async fn bin(&self, name: &str) -> tribbler::err::TribResult<Box<dyn Storage>> {
