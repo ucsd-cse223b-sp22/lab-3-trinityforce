@@ -72,7 +72,7 @@ pub trait BinReplicatorHelper {
     ) -> (Option<BinPrefixAdapter>, Option<BinPrefixAdapter>); // return two first trues from back_status
     async fn get_sorted_log_struct(
         &self,
-        bin_prefix_adapter: BinPrefixAdapter,
+        bin_prefix_adapter: &BinPrefixAdapter,
         wrapped_key: &str,
     ) -> TribResult<Vec<SortableLogRecord>>; // Get all logs. Sort and dedup.
     async fn append_log_action(
@@ -162,7 +162,7 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
 
     async fn get_sorted_log_struct(
         &self,
-        bin_prefix_adapter: BinPrefixAdapter,
+        bin_prefix_adapter: &BinPrefixAdapter,
         wrapped_key: &str,
     ) -> TribResult<Vec<SortableLogRecord>> {
         let logs_string = bin_prefix_adapter.list_get(&wrapped_key).await?.0;
@@ -255,28 +255,25 @@ impl storage::KeyList for BinReplicatorAdapter {
 
         // Get all logs. Sort and dedup.
         let logs_struct = self
-            .get_sorted_log_struct(bin_prefix_adapter, &wrapped_key)
+            .get_sorted_log_struct(&bin_prefix_adapter, &wrapped_key)
             .await?;
 
         // Replay the whole log.
+        let mut logs_result = vec![];
         let mut replay_set = HashSet::new();
-        for element in logs_struct.iter() {
+        for element in logs_struct.iter().rev() {
+            if replay_set.contains(&element.wrapped_string) {
+                continue;
+            }
             if element.action == APPEND_ACTION {
-                replay_set.insert(element.clock_id);
+                logs_result.push(element.wrapped_string.clone());
             } else if element.action == REMOVE_ACTION {
-                replay_set.remove(&element.clock_id);
+                replay_set.insert(&element.wrapped_string);
             } else {
                 println!("The operation is not supported!!!"); // Sanity check for action.
             }
         }
-
-        // Construct result string vector.
-        let mut logs_result = vec![];
-        for element in logs_struct {
-            if replay_set.contains(&element.clock_id) {
-                logs_result.push(element.wrapped_string);
-            }
-        }
+        logs_result.reverse();
 
         return Ok(storage::List(logs_result));
     }
@@ -334,50 +331,50 @@ impl storage::KeyList for BinReplicatorAdapter {
             let primary_bin_prefix_adapter = primary_adapter_option.unwrap();
             // Get all logs. Sort and dedup.
             logs_struct = self
-                .get_sorted_log_struct(primary_bin_prefix_adapter, &wrapped_key)
+                .get_sorted_log_struct(&primary_bin_prefix_adapter, &wrapped_key)
                 .await?;
             chosen_clock_id = primary_clock_id;
         } else {
             let secondary_bin_prefix_adapter = secondary_adapter_option.unwrap();
             // Get all logs. Sort and dedup.
             logs_struct = self
-                .get_sorted_log_struct(secondary_bin_prefix_adapter, &wrapped_key)
+                .get_sorted_log_struct(&secondary_bin_prefix_adapter, &wrapped_key)
                 .await?;
             chosen_clock_id = secondary_clock_id;
         }
 
-        let mut replay_set = HashSet::new();
-        for element in logs_struct {
-            if element.clock_id == chosen_clock_id {
-                break;
+        let mut removal_num = 0;
+        for element in logs_struct.iter().rev() {
+            if element.clock_id >= chosen_clock_id {
+                continue;
             }
             if element.wrapped_string != kv.value {
                 continue;
             }
             if element.action == APPEND_ACTION {
-                replay_set.insert(element.clock_id);
+                removal_num += 1;
             } else if element.action == REMOVE_ACTION {
-                replay_set.remove(&element.clock_id);
+                break;
             } else {
                 println!("The operation is not supported!!!"); // Sanity check for action.
             }
         }
 
-        return Ok(replay_set.len() as u32);
+        return Ok(removal_num);
     }
 
     async fn list_keys(&self, p: &storage::Pattern) -> TribResult<storage::List> {
         let wrapped_prefx = format!("{}{}", LIST_LOG_PREFIX, p.prefix);
 
         // Get ther first alive and valid bin.
-        let primary_adapter_option = self.get_read_replicas_access().await;
-        if primary_adapter_option.is_none() {
+        let adapter_option = self.get_read_replicas_access().await;
+        if adapter_option.is_none() {
             return Err(Box::new(NotEnoughServers));
         }
 
-        let primary_bin_prefix_adapter = primary_adapter_option.unwrap();
+        let bin_prefix_adapter = adapter_option.unwrap();
 
-        let primary_keys = primary_bin_prefix_adapter
+        let potential_keys = bin_prefix_adapter
             .list_keys(&storage::Pattern {
                 prefix: wrapped_prefx.to_string(),
                 suffix: p.suffix.to_string(),
@@ -385,13 +382,34 @@ impl storage::KeyList for BinReplicatorAdapter {
             .await?
             .0;
 
-        let mut ret_val = vec![];
-        for element in primary_keys {
-            let element_str = element.as_str();
-            let extracted_key = &element_str[LIST_LOG_PREFIX.len()..];
-            ret_val.push(extracted_key.to_string());
+        let mut true_keys = vec![];
+        for key in potential_keys {
+            let wrapped_key = format!("{}{}", LIST_LOG_PREFIX, key);
+            let logs_struct = self
+                .get_sorted_log_struct(&bin_prefix_adapter, &wrapped_key)
+                .await?;
+
+            // Replay the whole log.
+            let mut replay_set = HashSet::new();
+            for element in logs_struct.iter().rev() {
+                if replay_set.contains(&element.wrapped_string) {
+                    continue;
+                }
+                if element.action == APPEND_ACTION {
+                    let key_str = wrapped_key.as_str();
+                    let extracted_key = &key_str[LIST_LOG_PREFIX.len()..];
+                    true_keys.push(extracted_key.to_string());
+                    break;
+                } else if element.action == REMOVE_ACTION {
+                    replay_set.insert(&element.wrapped_string);
+                } else {
+                    println!("The operation is not supported!!!"); // Sanity check for action.
+                }
+            }
         }
-        return Ok(storage::List(ret_val));
+        true_keys.sort_unstable();
+
+        return Ok(storage::List(true_keys));
     }
 }
 
