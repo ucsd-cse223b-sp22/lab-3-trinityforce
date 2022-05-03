@@ -37,33 +37,42 @@ pub trait KeeperMigrationHelper {
         interval_start: usize,
         interval_end: usize,
     ) -> bool;
-    async fn extract_raw_keys_from_addr(&self, addr: &str) -> Vec<String>;
-    fn extract_bin_name_from_raw_key(&self, raw_key: &str) -> Vec<String>;
+    async fn extract_raw_keys_from_addr(&self, addr: &str) -> TribResult<Vec<String>>;
+    fn extract_bin_name_from_raw_key(&self, raw_key: &str) -> String;
 }
 
 #[async_trait]
 impl KeeperMigrationHelper for KeeperMigrator {
-    async fn extract_raw_keys_from_addr(&self, addr: &str) -> Vec<String> {
-        todo!();
-        // let raw_client = new_client(addr).await?;
-        // let keys_list_from = raw_client
-        //     .list_keys(&Pattern {
-        //         prefix: "".to_string(),
-        //         suffix: "".to_string(),
-        //     })
-        //     .await?
-        //     .0;
-        // let splits = element.split("::").collect::<Vec<&str>>();
+    async fn extract_raw_keys_from_addr(&self, addr: &str) -> TribResult<Vec<String>> {
+        let raw_client = new_client(addr).await?;
+        let keys_list = raw_client
+            .list_keys(&Pattern {
+                prefix: "".to_string(),
+                suffix: "".to_string(),
+            })
+            .await?
+            .0;
+        println!("extraction: {:?}", keys_list);
+        let mut filtered = vec![];
+        for element in keys_list {
+            let splits = &element.split("::").collect::<Vec<&str>>();
+            if splits.len() <= 2 {
+                continue;
+            }
+            let identifier = splits[1];
+            if identifier == LIST_LOG_PREFIX || identifier == STR_LOG_PREFIX {
+                filtered.push(element.clone());
+            }
+        }
+        return Ok(filtered);
     }
 
-    fn extract_bin_name_from_raw_key(&self, raw_key: &str) -> Vec<String> {
-        todo!();
-        // let raw_client = new_client(addr).await?;
-        // let splits = element.split("::").collect::<Vec<&str>>();
-        // let mut bin_name = "";
-        // if splits.len() > 2 {
-        //     bin_name = splits[1];
-        // }
+    fn extract_bin_name_from_raw_key(&self, raw_key: &str) -> String {
+        let splits = raw_key.split("::").collect::<Vec<&str>>();
+        if splits.len() < 2 {
+            return "".to_string();
+        }
+        return splits[0].to_string();
     }
 
     // backend servers index
@@ -100,32 +109,11 @@ impl KeeperMigrationHelper for KeeperMigrator {
         let addr_to = &self.backs[to];
         let client_from = new_client(addr_from).await?;
         let client_to = new_client(addr_to).await?;
-        let keys_list_from = client_from
-            .list_keys(&Pattern {
-                prefix: LIST_LOG_PREFIX.to_string(),
-                suffix: "".to_string(),
-            })
-            .await?
-            .0;
-        let keys_str_from = client_from
-            .list_keys(&Pattern {
-                prefix: STR_LOG_PREFIX.to_string(),
-                suffix: "".to_string(),
-            })
-            .await?
-            .0;
-        let mut keys_from = vec![];
-        for element in keys_list_from {
-            keys_from.push(element);
-        }
-        for element in keys_str_from {
-            keys_from.push(element);
-        }
-        for element in keys_from.iter() {
-            let splits = element.split("::").collect::<Vec<&str>>();
-            let mut bin_name = "";
-            if splits.len() >= 2 {
-                bin_name = splits[1];
+        let raw_key_list = self.extract_raw_keys_from_addr(addr_from).await?;
+        for element in raw_key_list.iter() {
+            let bin_name = self.extract_bin_name_from_raw_key(element);
+            if bin_name == "" {
+                continue;
             }
             let mut hasher = DefaultHasher::new();
             bin_name.hash(&mut hasher);
