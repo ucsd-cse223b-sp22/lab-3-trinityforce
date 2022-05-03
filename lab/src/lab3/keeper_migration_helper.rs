@@ -123,6 +123,7 @@ impl KeeperMigrationHelper for KeeperMigrator {
             let mut hasher = DefaultHasher::new();
             bin_name.hash(&mut hasher);
             let hash_res = hasher.finish() % (self.backs.len() as u64);
+
             if interval_start < interval_end {
                 println!(
                     "bin_name: {}, hash_res: {},interval_start: {}, interval_end: {}",
