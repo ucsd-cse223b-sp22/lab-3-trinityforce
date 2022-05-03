@@ -1,12 +1,13 @@
-use crate::lab3::keeper_server::KeeperHelper;
+use crate::lab3::keeper_server::{KeeperClockBroadcastorTrait, KeeperMigratorTrait};
 
-use super::constants::VALIDATION_BIT_KEY;
+use super::constants::{BRAODCAST_CLOCK_INTERVAL, MIGRATION_INTERVAL, VALIDATION_BIT_KEY};
 use super::keeper_rpc_receiver::KeeperRPCReceiver;
-use super::keeper_server::KeeperServer;
+use super::keeper_server::{KeeperClockBroadcastor, KeeperMigrator};
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time;
+use tribbler::rpc::trib_storage_server::TribStorageServer;
 use tribbler::storage;
 use tribbler::storage::BinStorage;
 use tribbler::trib;
@@ -20,7 +21,6 @@ use super::backend_server::BackendServer;
 use super::client::StorageClient;
 
 use super::super::keeper::keeper_service_server::KeeperServiceServer;
-use tribbler::rpc::trib_storage_server::TribStorageServer;
 use tribbler::storage::Storage;
 
 /// This function accepts a list of backend addresses, and returns a
@@ -43,8 +43,7 @@ pub async fn new_bin_client(backs: Vec<String>) -> TribResult<Box<dyn BinStorage
 pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
     let backs = kc.backs.clone();
     let mut backs_status = vec![];
-    let mut num_alive = 0;
-    let mut num_invalid = 0;
+    let mut num_valid = 0;
     for ind in 0..backs.len() {
         let client = new_client(backs[ind].as_str()).await?;
         let res = client.get(VALIDATION_BIT_KEY).await;
@@ -52,13 +51,12 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
             backs_status.push(false);
         } else {
             backs_status.push(true);
-            num_alive += 1;
-            if res.unwrap() == None {
-                num_invalid += 1;
+            if res.unwrap().is_some() {
+                num_valid += 1;
             }
         }
     }
-    if num_invalid == num_alive {
+    if num_valid == 0 {
         for ind in 0..backs.len() {
             let client = new_client(backs[ind].as_str()).await?;
             let _ = client
@@ -69,70 +67,73 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
                 .await?;
         }
     }
-    let keeper = KeeperServer::new(kc.this, kc.addrs.clone(), &kc.backs.clone(), backs_status);
-    let mut broadcast_logical_interval = time::interval(time::Duration::from_secs(1));
-    let mut migrate_interval = time::interval(time::Duration::from_secs(5));
+    let keeper_migrator =
+        KeeperMigrator::new(kc.this, kc.addrs.clone(), &kc.backs.clone(), backs_status);
+    let keeper_clock_broadcastor =
+        KeeperClockBroadcastor::new(kc.this, kc.addrs.clone(), &kc.backs.clone());
 
-    let (mut rpc_server_ready_send, mut rpc_server_ready_recv): (Sender<()>, Receiver<()>) =
-        mpsc::channel(1);
-    let (mut rpc_server_shutdown_send, mut rpc_server_shutdown_recv): (Sender<()>, Receiver<()>) =
-        mpsc::channel(1);
     tokio::spawn(async move {
-        let keeper_rpc_server = KeeperRPCReceiver::new();
-        let config_addr = &kc.addrs.clone()[kc.this];
-        let config_addr_str = config_addr.as_str();
-        let config_addr_string = config_addr_str.replace("localhost", "127.0.0.1");
-        let replaced_config_addr_str = config_addr_string.as_str();
-        let server_addr: SocketAddr;
-        let parsed_addr = match replaced_config_addr_str.parse::<SocketAddr>() {
-            Ok(value) => {
-                server_addr = value;
+        let mut broadcast_logical_interval =
+            time::interval(time::Duration::from_secs(BRAODCAST_CLOCK_INTERVAL));
+        loop {
+            tokio::select! {
+                _ = broadcast_logical_interval.tick() => {
+                    let _ = keeper_clock_broadcastor.broadcast_logical_clock().await;
+                }
             }
-            Err(e) => return Err(Box::new(e)),
-        };
-        let server_status = tonic::transport::Server::builder()
-            .add_service(KeeperServiceServer::new(keeper_rpc_server))
-            .serve_with_shutdown(server_addr, async {
-                rpc_server_ready_send.send(()).await;
-                rpc_server_shutdown_recv.recv().await;
-            })
-            .await;
-        Ok(())
+        }
     });
 
-    rpc_server_ready_recv.recv().await;
-    match kc.ready {
-        Some(ready_chan) => {
-            let _ = ready_chan.clone().send(true);
+    tokio::spawn(async move {
+        let mut migrate_interval = time::interval(time::Duration::from_secs(MIGRATION_INTERVAL));
+        loop {
+            tokio::select! {
+                _ = migrate_interval.tick() => {
+                    let _ = keeper_migrator.check_migration().await;
+                }
+            }
         }
-        None => {}
-    }
+    });
+    let keeper_rpc_server = KeeperRPCReceiver::new();
+    let config_addr = &kc.addrs.clone()[kc.this];
+    let config_addr_str = config_addr.as_str();
+    let config_addr_string = config_addr_str.replace("localhost", "127.0.0.1");
+    let replaced_config_addr_str = config_addr_string.as_str();
+    let server_addr: SocketAddr;
+    let parsed_addr = match replaced_config_addr_str.parse::<SocketAddr>() {
+        Ok(value) => {
+            server_addr = value;
+        }
+        Err(e) => return Err(Box::new(e)),
+    };
+
     match kc.shutdown {
-        Some(mut shut_chan) => loop {
-            tokio::select! {
-                _ = migrate_interval.tick() => {
-                    let _ = keeper.check_migration().await;
-                }
-                _ = broadcast_logical_interval.tick() => {
-                    let _ = keeper.broadcast_logical_clock().await;
-                }
-                _ = shut_chan.recv() => {
-                    rpc_server_shutdown_send.send(()).await;
-                    break;
-                }
+        Some(mut shut_chan) => {
+            let server_status = tonic::transport::Server::builder()
+                .add_service(KeeperServiceServer::new(keeper_rpc_server))
+                .serve_with_shutdown(server_addr, async {
+                    if !kc.ready.is_none() {
+                        let ready_chan = kc.ready.unwrap();
+                        let sig_sent = ready_chan.clone().send(true);
+                    }
+                    shut_chan.recv().await;
+                })
+                .await;
+            if server_status.is_err() {}
+        }
+        None => {
+            if !kc.ready.is_none() {
+                let ready_chan = kc.ready.unwrap();
+                let sig_sent = ready_chan.clone().send(true);
             }
-        },
-        None => loop {
-            tokio::select! {
-                _ = migrate_interval.tick() => {
-                    let _ = keeper.check_migration().await;
-                }
-                _ = broadcast_logical_interval.tick() => {
-                    let _ = keeper.broadcast_logical_clock().await;
-                }
-            }
-        },
+            let server_status = tonic::transport::Server::builder()
+                .add_service(KeeperServiceServer::new(keeper_rpc_server))
+                .serve(server_addr)
+                .await;
+            if server_status.is_err() {}
+        }
     }
+
     Ok(())
 }
 

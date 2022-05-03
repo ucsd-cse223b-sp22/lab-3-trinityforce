@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 use tribbler::err::TribResult;
 use tribbler::storage::{KeyString, Storage};
 
-pub struct KeeperServer {
+pub struct KeeperMigrator {
     pub backs: Vec<String>,
     pub keepers: Vec<String>,
     pub this: usize,
@@ -18,7 +18,7 @@ pub struct KeeperServer {
     backs_status_mut: RwLock<Vec<bool>>,
 }
 
-impl KeeperServer {
+impl KeeperMigrator {
     pub fn new(
         this: usize,
         keepers: Vec<String>,
@@ -35,17 +35,30 @@ impl KeeperServer {
     }
 }
 
+pub struct KeeperClockBroadcastor {
+    pub backs: Vec<String>,
+    pub keepers: Vec<String>,
+    pub this: usize,
+}
+
+impl KeeperClockBroadcastor {
+    pub fn new(this: usize, keepers: Vec<String>, backs: &Vec<String>) -> Self {
+        Self {
+            this,
+            keepers: keepers.clone(),
+            backs: backs.clone(),
+        }
+    }
+}
+
 use async_trait::async_trait;
 #[async_trait]
-pub trait KeeperHelper {
+pub trait KeeperMigratorTrait {
     async fn check_migration(&self) -> TribResult<()>;
-    async fn broadcast_logical_clock(&self) -> TribResult<()>;
-    async fn get_clock_send(&self, i: usize) -> TribResult<u64>;
-    async fn update_clock_send(&self, i: usize, max_clock: u64) -> TribResult<()>;
 }
 
 #[async_trait]
-impl KeeperHelper for KeeperServer {
+impl KeeperMigratorTrait for KeeperMigrator {
     async fn check_migration(&self) -> TribResult<()> {
         // my own jurisdiction starts from self.this
         // gonna cover the gap if my next keepers are down
@@ -101,7 +114,17 @@ impl KeeperHelper for KeeperServer {
         }
         Ok(())
     }
+}
 
+#[async_trait]
+pub trait KeeperClockBroadcastorTrait {
+    async fn broadcast_logical_clock(&self) -> TribResult<()>;
+    async fn get_clock_send(&self, i: usize) -> TribResult<u64>;
+    async fn update_clock_send(&self, i: usize, max_clock: u64) -> TribResult<()>;
+}
+
+#[async_trait]
+impl KeeperClockBroadcastorTrait for KeeperClockBroadcastor {
     async fn get_clock_send(&self, i: usize) -> TribResult<u64> {
         let client = StorageClient::new(self.backs[i].as_str());
         let target_clock = client.clock(0).await?;

@@ -1,5 +1,5 @@
 use super::constants::{LIST_LOG_PREFIX, STR_LOG_PREFIX, VALIDATION_BIT_KEY};
-use super::keeper_server::KeeperServer;
+use super::keeper_server::KeeperMigrator;
 use super::new_client;
 use std::cmp;
 use std::collections::hash_map::DefaultHasher;
@@ -37,10 +37,35 @@ pub trait KeeperMigrationHelper {
         interval_start: usize,
         interval_end: usize,
     ) -> bool;
+    async fn extract_raw_keys_from_addr(&self, addr: &str) -> Vec<String>;
+    fn extract_bin_name_from_raw_key(&self, raw_key: &str) -> Vec<String>;
 }
 
 #[async_trait]
-impl KeeperMigrationHelper for KeeperServer {
+impl KeeperMigrationHelper for KeeperMigrator {
+    async fn extract_raw_keys_from_addr(&self, addr: &str) -> Vec<String> {
+        todo!();
+        // let raw_client = new_client(addr).await?;
+        // let keys_list_from = raw_client
+        //     .list_keys(&Pattern {
+        //         prefix: "".to_string(),
+        //         suffix: "".to_string(),
+        //     })
+        //     .await?
+        //     .0;
+        // let splits = element.split("::").collect::<Vec<&str>>();
+    }
+
+    fn extract_bin_name_from_raw_key(&self, raw_key: &str) -> Vec<String> {
+        todo!();
+        // let raw_client = new_client(addr).await?;
+        // let splits = element.split("::").collect::<Vec<&str>>();
+        // let mut bin_name = "";
+        // if splits.len() > 2 {
+        //     bin_name = splits[1];
+        // }
+    }
+
     // backend servers index
     // interval_start: non-inclusive; interval_end: inclusive
     fn falls_into_interval(

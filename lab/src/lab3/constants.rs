@@ -4,3 +4,5 @@ pub const VALIDATION_BIT_KEY: &str = "VALIDATION-BIT";
 pub const SCAN_INTERVAL_CONSTANT: u64 = 7;
 pub const APPEND_ACTION: &str = "APPEND";
 pub const REMOVE_ACTION: &str = "REMOVE";
+pub const MIGRATION_INTERVAL: u64 = 10;
+pub const BRAODCAST_CLOCK_INTERVAL: u64 = 2;
