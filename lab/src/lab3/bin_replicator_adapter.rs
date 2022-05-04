@@ -1,15 +1,19 @@
+use super::bin_client::update_channel_cache;
 use super::bin_prefix_adapter::BinPrefixAdapter;
+use super::client::StorageClient;
 use super::constants::{
     APPEND_ACTION, LIST_LOG_PREFIX, REMOVE_ACTION, STR_LOG_PREFIX, VALIDATION_BIT_KEY,
 };
-use super::new_client;
 use serde::{Deserialize, Serialize};
 use std::cmp::{self, min, Ordering};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::error;
 use std::fmt;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tonic::transport::Channel;
 use tribbler::err::TribResult;
-use tribbler::storage::{self, KeyList, Storage};
+use tribbler::storage::{self, KeyList, KeyString, Storage};
 
 // Change the alias to `Box<error::Error>`.
 #[derive(Debug, Clone)]
@@ -35,15 +39,23 @@ pub struct BinReplicatorAdapter {
     pub backs: Vec<String>,
     pub bin: String,
     back_status: Vec<bool>,
+    channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
 }
 
 impl BinReplicatorAdapter {
-    pub fn new(hash_index: u32, backs: Vec<String>, bin: &str, back_status: Vec<bool>) -> Self {
+    pub fn new(
+        hash_index: u32,
+        backs: Vec<String>,
+        bin: &str,
+        back_status: Vec<bool>,
+        channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
+    ) -> Self {
         Self {
             hash_index,
             backs: backs.clone(),
             bin: bin.to_string(),
             back_status: back_status.clone(),
+            channel_cache: channel_cache.clone(),
         }
     }
 }
@@ -190,7 +202,13 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
                 continue;
             }
             let backend_addr = &backs[backend_index];
-            let pinger = new_client(backend_addr).await.unwrap();
+            let chan_res =
+                update_channel_cache(self.channel_cache.clone(), backend_addr.clone()).await;
+            if chan_res.is_err() {
+                println!("Channel get failed!");
+                continue;
+            }
+            let pinger = StorageClient::new(backend_addr, Some(chan_res.unwrap()));
             let resp = pinger.get(VALIDATION_BIT_KEY).await;
             if resp.is_err() {
                 continue;
@@ -199,7 +217,11 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
             if validation == None {
                 continue;
             }
-            return Some(BinPrefixAdapter::new(&backend_addr, &self.bin.to_string()));
+            return Some(BinPrefixAdapter::new(
+                &backend_addr,
+                &self.bin.to_string(),
+                self.channel_cache.clone(),
+            ));
         }
         return None;
     }
@@ -221,20 +243,29 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
                 continue;
             }
             let primary_backend_addr = &backs[primary_backend_index];
-            let primary_pinger = new_client(primary_backend_addr).await.unwrap();
-            let primary_resp = primary_pinger.get("DUMMY").await;
-            if primary_resp.is_err() {
-                println!(
-                    "primary addr: {}; primary_resp: none",
-                    primary_backend_index
-                );
-                primary_adapter_option = None;
+            let primary_chan_res =
+                update_channel_cache(self.channel_cache.clone(), primary_backend_addr.clone())
+                    .await;
+            if !primary_chan_res.is_err() {
+                let primary_pinger =
+                    StorageClient::new(primary_backend_addr, Some(primary_chan_res.unwrap()));
+                let primary_resp = primary_pinger.get("DUMMY").await;
+                if primary_resp.is_err() {
+                    println!(
+                        "primary addr: {}; primary_resp: none",
+                        primary_backend_index
+                    );
+                    primary_adapter_option = None;
+                } else {
+                    println!("primary addr: {}; primary_resp: OK", primary_backend_index);
+                    primary_adapter_option = Some(BinPrefixAdapter::new(
+                        &primary_backend_addr,
+                        &self.bin.to_string(),
+                        self.channel_cache.clone(),
+                    ));
+                }
             } else {
-                println!("primary addr: {}; primary_resp: OK", primary_backend_index);
-                primary_adapter_option = Some(BinPrefixAdapter::new(
-                    &primary_backend_addr,
-                    &self.bin.to_string(),
-                ));
+                println!("Channel get failed!");
             }
 
             // start scanning the secondary replica
@@ -244,23 +275,37 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
                     continue;
                 }
                 let secondary_backend_addr = &backs[secondary_backend_index];
-                let secondary_pinger = new_client(secondary_backend_addr).await.unwrap();
-                let secondary_resp = secondary_pinger.get("DUMMY").await;
-                if secondary_resp.is_err() {
-                    secondary_adapter_option = None;
-                    println!(
-                        "secondary addr: {}; secondary_resp: None",
-                        secondary_backend_index
+                let secondary_chan_res = update_channel_cache(
+                    self.channel_cache.clone(),
+                    secondary_backend_addr.clone(),
+                )
+                .await;
+
+                if !secondary_chan_res.is_err() {
+                    let secondary_pinger = StorageClient::new(
+                        secondary_backend_addr,
+                        Some(secondary_chan_res.unwrap()),
                     );
+                    let secondary_resp = secondary_pinger.get("DUMMY").await;
+                    if secondary_resp.is_err() {
+                        secondary_adapter_option = None;
+                        println!(
+                            "secondary addr: {}; secondary_resp: None",
+                            secondary_backend_index
+                        );
+                    } else {
+                        secondary_adapter_option = Some(BinPrefixAdapter::new(
+                            &secondary_backend_addr,
+                            &self.bin.to_string(),
+                            self.channel_cache.clone(),
+                        ));
+                        println!(
+                            "secondary addr: {}; secondary_resp: OK",
+                            secondary_backend_index
+                        );
+                    }
                 } else {
-                    secondary_adapter_option = Some(BinPrefixAdapter::new(
-                        &secondary_backend_addr,
-                        &self.bin.to_string(),
-                    ));
-                    println!(
-                        "secondary addr: {}; secondary_resp: OK",
-                        secondary_backend_index
-                    );
+                    println!("Channel get failed!");
                 }
                 break;
             }
@@ -301,49 +346,55 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
         action: &str,
     ) -> TribResult<(u64, u64)> {
         // Try to append to entry in the primary
-        let mut is_primary_none = true;
+        let mut is_primary_fail = true;
         let mut primary_clock_id = 0;
         let mut secondary_clock_id = 0;
         let mut log_entry_str = String::new();
 
         if primary_adapter_option.is_some() {
-            is_primary_none = false;
             let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
             // get primary clock as unique id
-            primary_clock_id = primary_bin_prefix_adapter.clock(0).await?;
-            let log_entry = SortableLogRecord {
-                clock_id: primary_clock_id,
-                wrapped_string: kv.value.to_string(),
-                action: action.to_string(),
-            };
-            log_entry_str = serde_json::to_string(&log_entry)?;
-            let _ = primary_bin_prefix_adapter
-                .list_append(&storage::KeyValue {
-                    key: wrapped_key.to_string(),
-                    value: log_entry_str.to_string(),
-                })
-                .await?;
+            let primary_clock_id_res = primary_bin_prefix_adapter.clock(0).await;
+            if !primary_clock_id_res.is_err() {
+                is_primary_fail = false;
+                primary_clock_id = primary_clock_id_res.unwrap();
+                let log_entry = SortableLogRecord {
+                    clock_id: primary_clock_id,
+                    wrapped_string: kv.value.to_string(),
+                    action: action.to_string(),
+                };
+                log_entry_str = serde_json::to_string(&log_entry)?;
+                let _ = primary_bin_prefix_adapter
+                    .list_append(&storage::KeyValue {
+                        key: wrapped_key.to_string(),
+                        value: log_entry_str.to_string(),
+                    })
+                    .await;
+            }
         }
 
         // Try to append to entry in the secondary
         if secondary_adapter_option.is_some() {
             let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
             // get secondary clock as unique id if primary is none
-            secondary_clock_id = secondary_bin_prefix_adapter.clock(primary_clock_id).await?;
-            if is_primary_none {
-                let log_entry = SortableLogRecord {
-                    clock_id: secondary_clock_id,
-                    wrapped_string: kv.value.to_string(),
-                    action: action.to_string(),
-                };
-                log_entry_str = serde_json::to_string(&log_entry)?;
+            let secondary_clock_id_res = secondary_bin_prefix_adapter.clock(primary_clock_id).await;
+            if !secondary_clock_id_res.is_err() {
+                secondary_clock_id = secondary_clock_id_res.unwrap();
+                if is_primary_fail {
+                    let log_entry = SortableLogRecord {
+                        clock_id: secondary_clock_id,
+                        wrapped_string: kv.value.to_string(),
+                        action: action.to_string(),
+                    };
+                    log_entry_str = serde_json::to_string(&log_entry)?;
+                }
+                let _ = secondary_bin_prefix_adapter
+                    .list_append(&storage::KeyValue {
+                        key: wrapped_key.to_string(),
+                        value: log_entry_str.to_string(),
+                    })
+                    .await;
             }
-            let _ = secondary_bin_prefix_adapter
-                .list_append(&storage::KeyValue {
-                    key: wrapped_key.to_string(),
-                    value: log_entry_str.to_string(),
-                })
-                .await?;
         }
 
         Ok((primary_clock_id, secondary_clock_id))
@@ -542,7 +593,17 @@ impl storage::Storage for BinReplicatorAdapter {
         } else {
             let primary_bin_prefix_adapter = primary_adapter_option.unwrap();
             let secondary_bin_prefix_adapter = secondary_adapter_option.unwrap();
-            let primary_pinger = new_client(&primary_bin_prefix_adapter.addr).await.unwrap();
+
+            let primary_chan_res =
+                update_channel_cache(self.channel_cache.clone(), primary_bin_prefix_adapter.addr)
+                    .await;
+            if primary_chan_res.is_err() {
+                println!("Should not happen!")
+            }
+            let primary_pinger = StorageClient::new(
+                &primary_bin_prefix_adapter.addr,
+                Some(primary_chan_res.unwrap()),
+            );
             // Check whether primary is valid
             let resp = primary_pinger.get(VALIDATION_BIT_KEY).await;
             let validation = resp.unwrap();

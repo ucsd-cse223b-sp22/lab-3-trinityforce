@@ -16,7 +16,7 @@ pub struct BinStorageClient {
     pub backs: Vec<String>,
     back_status_mut: RwLock<Vec<bool>>,
     last_scan_ts: RwLock<u64>,
-    channel_cache: Arc<RwLock<HashMap<usize, Channel>>>,
+    channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
 }
 
 impl BinStorageClient {
@@ -38,7 +38,6 @@ use async_trait::async_trait;
 #[async_trait]
 pub trait BackStatusScanner {
     async fn scan_backs_status(&self);
-    async fn update_channel_cache(&self, idx: usize) -> TribResult<Channel>;
 }
 
 #[async_trait]
@@ -64,7 +63,12 @@ impl BackStatusScanner for BinStorageClient {
         // scan + update
         let mut back_status = self.back_status_mut.write().await;
         for i in 0..self.backs.len() {
-            let client = StorageClient::new(self.backs[i].as_str());
+            let chan_res = update_channel_cache(self.channel_cache.clone(), self.backs[i]).await;
+            if chan_res.is_err() {
+                (*back_status)[i] = false;
+                continue;
+            }
+            let client = StorageClient::new(self.backs[i].as_str(), Some(chan_res.unwrap()));
             let get_res = client.get("DUMMY").await;
             if get_res.is_err() {
                 (*back_status)[i] = false;
@@ -73,49 +77,27 @@ impl BackStatusScanner for BinStorageClient {
             }
         }
     }
-
-    async fn update_channel_cache(&self, idx: usize) -> TribResult<Channel> {
-        let channel_cache_read = self.channel_cache.read().await;
-        let res = (*channel_cache_read).get(&idx);
-        if let Some(chan) = res {
-            return Ok(chan.clone());
-        }
-        drop(channel_cache_read);
-
-        let mut channel_cache_write = self.channel_cache.write().await;
-        let res = (*channel_cache_write).get(&idx);
-        if let Some(chan) = res {
-            Ok(chan.clone())
-        } else {
-            let chan = Endpoint::from_shared(self.backs[idx].clone())?
-                .connect()
-                .await?;
-            (*channel_cache_write).insert(idx, chan.clone());
-            Ok(chan)
-        }
-    }
 }
 
-async fn update_channel_cache(
-    channel_cache: Arc<RwLock<HashMap<usize, Channel>>>,
-    idx: usize,
+pub(crate) async fn update_channel_cache(
+    channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
     back_addr: String,
 ) -> TribResult<Channel> {
     let back_addr = format!("http://{}", back_addr);
     let channel_cache_read = channel_cache.read().await;
-    let res = (*channel_cache_read).get(&idx);
+    let res = (*channel_cache_read).get(&back_addr);
     if let Some(chan) = res {
         return Ok(chan.clone());
     }
     drop(channel_cache_read);
 
     let mut channel_cache_write = channel_cache.write().await;
-    let res = (*channel_cache_write).get(&idx);
+    let res = (*channel_cache_write).get(&back_addr);
     if let Some(chan) = res {
         Ok(chan.clone())
     } else {
-        let chan = Endpoint::from_shared(back_addr)?.connect().await?;
-        (*channel_cache_write).insert(idx, chan.clone());
+        let chan = Endpoint::from_shared(back_addr.clone())?.connect().await?;
+        (*channel_cache_write).insert(back_addr, chan.clone());
         Ok(chan)
     }
 }
@@ -132,8 +114,13 @@ impl BinStorage for BinStorageClient {
         let ind = (hash_res % len) as u32;
         let back_status = self.back_status_mut.read().await;
         let back_status_copy = (*back_status).clone();
-        let storage_bin_replicator_adapter =
-            BinReplicatorAdapter::new(ind, backs.clone(), name, back_status_copy);
+        let storage_bin_replicator_adapter = BinReplicatorAdapter::new(
+            ind,
+            backs.clone(),
+            name,
+            back_status_copy,
+            self.channel_cache.clone(),
+        );
         // println!("{}", target_back_addr);
         Ok(Box::new(storage_bin_replicator_adapter))
     }
