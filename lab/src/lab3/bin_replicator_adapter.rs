@@ -5,7 +5,7 @@ use super::constants::{
     APPEND_ACTION, LIST_LOG_PREFIX, REMOVE_ACTION, STR_LOG_PREFIX, VALIDATION_BIT_KEY,
 };
 use serde::{Deserialize, Serialize};
-use std::cmp::{self, min, Ordering};
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::error;
 use std::fmt;
@@ -55,7 +55,7 @@ impl BinReplicatorAdapter {
             backs: backs.clone(),
             bin: bin.to_string(),
             back_status: back_status.clone(),
-            channel_cache: channel_cache.clone(),
+            channel_cache,
         }
     }
 }
@@ -606,14 +606,20 @@ impl storage::Storage for BinReplicatorAdapter {
             );
             // Check whether primary is valid
             let resp = primary_pinger.get(VALIDATION_BIT_KEY).await;
-            let validation = resp.unwrap();
-            if validation == None {
-                // If primary is not valid, sync primary using backend
-                clk = primary_bin_prefix_adapter.clock(at_least).await?;
-                let _ = secondary_bin_prefix_adapter.clock(clk).await?;
-            } else {
+            // let validation = resp.unwrap();
+            if !resp.is_err() && resp.unwrap() == None {
+                // If primary is not valid, sync primary using backup
                 clk = secondary_bin_prefix_adapter.clock(at_least).await?;
-                let _ = primary_bin_prefix_adapter.clock(clk).await?;
+                let _ = primary_bin_prefix_adapter.clock(clk).await;
+            } else {
+                let clk_res = primary_bin_prefix_adapter.clock(at_least).await;
+                if !clk_res.is_err() {
+                    clk = clk_res?;
+                    let _ = secondary_bin_prefix_adapter.clock(clk).await;
+                } else {
+                    let secondary_bin_prefix_adapter = secondary_adapter_option.unwrap();
+                    clk = secondary_bin_prefix_adapter.clock(at_least).await?;
+                }
             }
         }
         Ok(clk)

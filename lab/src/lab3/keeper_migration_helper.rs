@@ -1,14 +1,11 @@
 use super::constants::{LIST_LOG_KEYWORD, STR_LOG_KEYWORD, VALIDATION_BIT_KEY};
 use super::keeper_server::KeeperMigrator;
 use super::new_client;
-use std::cmp;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
-use std::sync::mpsc::{self, SyncSender};
-use std::sync::Mutex;
 use tribbler::err::TribResult;
-use tribbler::storage::{KeyValue, Pattern, Storage};
+use tribbler::storage::{KeyValue, Pattern};
 
 use async_trait::async_trait;
 #[async_trait]

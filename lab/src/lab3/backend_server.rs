@@ -1,5 +1,3 @@
-use std::sync::RwLock;
-
 use async_trait::async_trait;
 use tonic::{Request, Response, Status};
 use tribbler::rpc;

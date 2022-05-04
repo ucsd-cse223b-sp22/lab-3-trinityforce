@@ -4,8 +4,6 @@ use super::constants::{BRAODCAST_CLOCK_INTERVAL, MIGRATION_INTERVAL, VALIDATION_
 use super::keeper_rpc_receiver::KeeperRPCReceiver;
 use super::keeper_server::{KeeperClockBroadcastor, KeeperMigrator};
 use std::net::SocketAddr;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time;
 use tribbler::rpc::trib_storage_server::TribStorageServer;
 use tribbler::storage;

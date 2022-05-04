@@ -1,11 +1,9 @@
 use async_trait::async_trait;
 
 use serde::{Deserialize, Serialize};
-use std::cmp::{self, min, Ordering};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-// use std::sync::Mutex;
+use std::cmp::{min, Ordering};
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tribbler::err::{TribResult, TribblerError};
 use tribbler::storage::BinStorage;
@@ -286,9 +284,8 @@ impl Server for FrontendServer {
 
         let client_future = self.bin_client.bin(who);
         let client = client_future.await?;
-        let mut max_clock = client.clock(clock).await?;
+        let max_clock = client.clock(clock + 1).await?;
         // println!("server clock: {}; client clock: {}", max_clock, clock);
-        max_clock = cmp::max(max_clock, clock) as u64;
 
         // serialize trib
         let time = SystemTime::now()
