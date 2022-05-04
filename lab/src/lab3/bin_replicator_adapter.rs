@@ -52,15 +52,108 @@ use async_trait::async_trait;
 #[async_trait] // VERY IMPORTANT !!!=
 impl storage::KeyString for BinReplicatorAdapter {
     async fn get(&self, key: &str) -> TribResult<Option<String>> {
-        todo!();
+        let wrapped_key = format!("{}{}", STR_LOG_PREFIX, key);
+
+        // Get ther first alive and valid bin.
+        let adapter_option = self.get_read_replicas_access().await;
+        if adapter_option.is_none() {
+            return Err(Box::new(NotEnoughServers));
+        }
+        let bin_prefix_adapter = adapter_option.unwrap();
+
+        // Get all logs
+        let logs_string = bin_prefix_adapter.list_get(&wrapped_key).await?.0;
+        let mut logs_struct = vec![];
+        for element in logs_string {
+            let log_entry: SortableLogRecord = serde_json::from_str(&element).unwrap();
+            logs_struct.push(log_entry);
+        }
+
+        // Get the log with largest clock
+
+        let mut max_clock: u64 = 0;
+        let mut result_str = "";
+        for element in logs_struct.iter() {
+            if element.clock_id > max_clock {
+                max_clock = element.clock_id;
+                result_str = &element.wrapped_string;
+            }
+        }
+        if result_str == "" {
+            return Ok(None);
+        }
+        return Ok(Some(result_str.to_string()));
     }
 
     async fn set(&self, kv: &storage::KeyValue) -> TribResult<bool> {
-        todo!();
+        let wrapped_key = format!("{}{}", STR_LOG_PREFIX, kv.key);
+
+        // Get first two "valid" bins.
+        let (primary_adapter_option, secondary_adapter_option) =
+            self.get_write_replicas_access().await;
+        if primary_adapter_option.is_none() && secondary_adapter_option.is_none() {
+            return Err(Box::new(NotEnoughServers));
+        }
+
+        // Try to append the entry in primary and secondary
+        let _ = self
+            .append_log_action(
+                &primary_adapter_option,
+                &secondary_adapter_option,
+                &wrapped_key,
+                kv,
+                APPEND_ACTION,
+            )
+            .await?;
+
+        return Ok(true);
     }
 
     async fn keys(&self, p: &storage::Pattern) -> TribResult<storage::List> {
-        todo!();
+        let wrapped_prefx = format!("{}{}", STR_LOG_PREFIX, p.prefix);
+
+        // Get the first alive and valid bin.
+        let adapter_option = self.get_read_replicas_access().await;
+        if adapter_option.is_none() {
+            return Err(Box::new(NotEnoughServers));
+        }
+
+        let bin_prefix_adapter = adapter_option.unwrap();
+
+        let potential_keys = bin_prefix_adapter
+            .list_keys(&storage::Pattern {
+                prefix: wrapped_prefx.to_string(),
+                suffix: p.suffix.to_string(),
+            })
+            .await?
+            .0;
+
+        let mut true_keys = vec![];
+        for key in potential_keys {
+            let logs_string = bin_prefix_adapter.list_get(&key).await?.0;
+            let mut logs_struct = vec![];
+            for element in logs_string {
+                let log_entry: SortableLogRecord = serde_json::from_str(&element).unwrap();
+                logs_struct.push(log_entry);
+            }
+
+            // Get the log with largest clock
+
+            let mut max_clock: u64 = 0;
+            let mut result_str = "";
+            for element in logs_struct.iter() {
+                if element.clock_id > max_clock {
+                    max_clock = element.clock_id;
+                    result_str = &element.wrapped_string;
+                }
+            }
+            if result_str != "" {
+                let extracted_key = &key[STR_LOG_PREFIX.len()..];
+                true_keys.push(extracted_key.to_string())
+            }
+        }
+        true_keys.sort_unstable();
+        return Ok(storage::List(true_keys));
     }
 }
 
@@ -400,9 +493,8 @@ impl storage::KeyList for BinReplicatorAdapter {
 
         let mut true_keys = vec![];
         for key in potential_keys {
-            let wrapped_key = format!("{}{}", LIST_LOG_PREFIX, key);
             let logs_struct = self
-                .get_sorted_log_struct(&bin_prefix_adapter, &wrapped_key)
+                .get_sorted_log_struct(&bin_prefix_adapter, &key)
                 .await?;
 
             // Replay the whole log.
@@ -412,7 +504,7 @@ impl storage::KeyList for BinReplicatorAdapter {
                     continue;
                 }
                 if element.action == APPEND_ACTION {
-                    let key_str = wrapped_key.as_str();
+                    let key_str = key.as_str();
                     let extracted_key = &key_str[LIST_LOG_PREFIX.len()..];
                     true_keys.push(extracted_key.to_string());
                     break;
