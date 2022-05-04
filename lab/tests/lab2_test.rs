@@ -4,7 +4,7 @@ use std::{
         Arc,
     },
     thread,
-    time::Duration, collections::{HashMap, HashSet}, cmp,
+    time::Duration, collections::{HashMap, HashSet}, cmp, vec,
 };
 use rand::Rng;
 use lab::{self, lab3};
@@ -39,11 +39,13 @@ fn generate_random_username(len: usize) -> String {
     return format!("{}{}", "a", password);
 }
 
-async fn setup(backs: Vec<String>, keeper_addr: String) -> TribResult<(MpscSender<()>, MpscSender<()>, MpscSender<()>, MpscSender<()>)> {
+async fn setup(backs: Vec<String>, keeper_addr: Vec<String>) -> TribResult<(MpscSender<()>, MpscSender<()>, MpscSender<()>, MpscSender<()>, MpscSender<()>, MpscSender<()>)> {
     let (shut_tx1, shut_rx1) = tokio::sync::mpsc::channel(1);
     let (shut_tx2, shut_rx2) = tokio::sync::mpsc::channel(1);
     let (shut_tx3, shut_rx3) = tokio::sync::mpsc::channel(1);
     let (shut_tx4, shut_rx4) = tokio::sync::mpsc::channel(1);
+    let (shut_tx5, shut_rx5) = tokio::sync::mpsc::channel(1);
+    let (shut_tx6, shut_rx6) = tokio::sync::mpsc::channel(1);
     let cfg1 = BackConfig {
         addr: backs[0].to_string(),
         storage: Box::new(MemStorage::default()),
@@ -62,20 +64,36 @@ async fn setup(backs: Vec<String>, keeper_addr: String) -> TribResult<(MpscSende
         ready: None,
         shutdown: Some(shut_rx3),
     };
-    let kfg = KeeperConfig {
-        backs: backs.clone(),
-        addrs: vec![keeper_addr],
-        this: 0,
-        id: 0,
+    let cfg4 = BackConfig {
+        addr: backs[3].to_string(),
+        storage: Box::new(MemStorage::default()),
         ready: None,
         shutdown: Some(shut_rx4),
+    };
+    let kfg1 = KeeperConfig {
+        backs: backs.clone(),
+        addrs: keeper_addr.clone(),
+        this: 0,
+        id: 1,
+        ready: None,
+        shutdown: Some(shut_rx5),
+    };
+    let kfg2 = KeeperConfig {
+        backs: backs.clone(),
+        addrs: keeper_addr.clone(),
+        this: 1,
+        id: 2,
+        ready: None,
+        shutdown: Some(shut_rx6),
     };
     spawn_back(cfg1);
     spawn_back(cfg2);
     spawn_back(cfg3);
-    spawn_keep(kfg);
+    spawn_back(cfg4);
+    spawn_keep(kfg1);
+    spawn_keep(kfg2);
     tokio::time::sleep(Duration::from_millis(777)).await;
-    Ok((shut_tx1.clone(), shut_tx2.clone(), shut_tx3.clone(), shut_tx4.clone(),))
+    Ok((shut_tx1.clone(), shut_tx2.clone(), shut_tx3.clone(), shut_tx4.clone(), shut_tx5.clone(), shut_tx6.clone()))
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -84,9 +102,13 @@ async fn test_simple_follow() -> TribResult<()> {
         "127.0.0.1:33950".to_string(),
         "127.0.0.1:33951".to_string(),
         "127.0.0.1:33952".to_string(),
+        "127.0.0.1:33953".to_string(),
     ];
-    let keeper_addr = "127.0.0.1:33953".to_string();
-    let (tx1, tx2, tx3, tx4) = setup(backs.clone(), keeper_addr).await?;
+    let keeper_addr = vec![
+        "127.0.0.1:33954".to_string(),
+        "127.0.0.1:33955".to_string(),
+    ];
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone().clone()).await?;
     let bc = lab3::new_bin_client(backs.clone()).await?;
     let frontend = lab3::new_front(bc).await?;
 
@@ -102,6 +124,8 @@ async fn test_simple_follow() -> TribResult<()> {
     let _ = tx2.send(()).await;
     let _ = tx3.send(()).await;
     let _ = tx4.send(()).await;
+    let _ = tx5.send(()).await;
+    let _ = tx6.send(()).await;
     Ok(())
 }
 
@@ -111,9 +135,13 @@ async fn test_duplicate_follow() -> TribResult<()> {
         "127.0.0.1:33001".to_string(),
         "127.0.0.1:33002".to_string(),
         "127.0.0.1:33003".to_string(),
+        "127.0.0.1:33004".to_string(),
     ];
-    let keeper_addr = "127.0.0.1:33004".to_string();
-    let (tx1, tx2, tx3, tx4) = setup(backs.clone(), keeper_addr).await?;
+    let keeper_addr = vec![
+        "127.0.0.1:33005".to_string(),
+        "127.0.0.1:33006".to_string()
+    ];
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
     let bc = lab3::new_bin_client(backs.clone()).await?;
     let frontend = lab3::new_front(bc).await?;
 
@@ -128,6 +156,8 @@ async fn test_duplicate_follow() -> TribResult<()> {
     let _ = tx2.send(()).await;
     let _ = tx3.send(()).await;
     let _ = tx4.send(()).await;
+    let _ = tx5.send(()).await;
+    let _ = tx6.send(()).await;
     if res.is_ok() {
         assert!(false, "what the fuck dude you are not supposed to follow professor twice you creepy motherfucker!");
     }
@@ -137,12 +167,16 @@ async fn test_duplicate_follow() -> TribResult<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_duplicate_unfollow() -> TribResult<()> {
     let backs = vec![
-        "127.0.0.1:33005".to_string(),
-        "127.0.0.1:33006".to_string(),
-        "127.0.0.1:33007".to_string(),
+        "127.0.0.1:33011".to_string(),
+        "127.0.0.1:33012".to_string(),
+        "127.0.0.1:33013".to_string(),
+        "127.0.0.1:33014".to_string(),
     ];
-    let keeper_addr = "127.0.0.1:33008".to_string();
-    let (tx1, tx2, tx3, tx4) = setup(backs.clone(), keeper_addr).await?;
+    let keeper_addr = vec![
+        "127.0.0.1:33015".to_string(),
+        "127.0.0.1:33016".to_string()
+    ];
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
     let bc = lab3::new_bin_client(backs.clone()).await?;
     let frontend = lab3::new_front(bc).await?;
 
@@ -169,18 +203,24 @@ async fn test_duplicate_unfollow() -> TribResult<()> {
     let _ = tx2.send(()).await;
     let _ = tx3.send(()).await;
     let _ = tx4.send(()).await;
+    let _ = tx5.send(()).await;
+    let _ = tx6.send(()).await;
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_concurrent_follow() -> TribResult<()> {
     let backs = vec![
-        "127.0.0.1:33009".to_string(),
-        "127.0.0.1:33010".to_string(),
-        "127.0.0.1:33011".to_string(),
+        "127.0.0.1:33021".to_string(),
+        "127.0.0.1:33022".to_string(),
+        "127.0.0.1:33023".to_string(),
+        "127.0.0.1:33024".to_string(),
     ];
-    let keeper_addr = "127.0.0.1:33012".to_string();
-    let (tx1, tx2, tx3, tx4) = setup(backs.clone(), keeper_addr).await?;
+    let keeper_addr = vec![
+        "127.0.0.1:33025".to_string(),
+        "127.0.0.1:33026".to_string()
+    ];
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
     let bc = lab3::new_bin_client(backs.clone()).await?;
     let frontend0 = lab3::new_front(bc).await?;
 
@@ -234,18 +274,24 @@ async fn test_concurrent_follow() -> TribResult<()> {
     let _ = tx2.send(()).await;
     let _ = tx3.send(()).await;
     let _ = tx4.send(()).await;
+    let _ = tx5.send(()).await;
+    let _ = tx6.send(()).await;
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_bins_diff_keys_massive_set_get() -> TribResult<()> {
     let backs = vec![
-        "127.0.0.1:33015".to_string(),
-        "127.0.0.1:33016".to_string(),
-        "127.0.0.1:33017".to_string(),
+        "127.0.0.1:33031".to_string(),
+        "127.0.0.1:33032".to_string(),
+        "127.0.0.1:33033".to_string(),
+        "127.0.0.1:33034".to_string(),
     ];
-    let keeper_addr = "127.0.0.1:33018".to_string();
-    let (tx1, tx2, tx3, tx4) = setup(backs.clone(), keeper_addr).await?;
+    let keeper_addr = vec![
+        "127.0.0.1:33035".to_string(),
+        "127.0.0.1:33036".to_string()
+    ];
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
     let bin_client = lab3::new_bin_client(backs.clone()).await?;
     let STRING_LEN = 30;
     let NUM_KEYS = 777;
@@ -280,6 +326,8 @@ async fn test_bins_diff_keys_massive_set_get() -> TribResult<()> {
     let _ = tx2.send(()).await;
     let _ = tx3.send(()).await;
     let _ = tx4.send(()).await;
+    let _ = tx5.send(()).await;
+    let _ = tx6.send(()).await;
     Ok(())
 }
 
@@ -288,12 +336,16 @@ async fn test_bins_same_key_massive_set_get() -> TribResult<()> {
     // funny story: 根据pigeonhole principle (雀巢定律，鸽笼定律，抽屉原理，whatever you called it blablabla)
     // 我们只需要4个bin!!!就可以测出你有没有分隔开来virtual bins!!!
     let backs = vec![
-        "127.0.0.1:33025".to_string(),
-        "127.0.0.1:33026".to_string(),
-        "127.0.0.1:33027".to_string(),
+        "127.0.0.1:33041".to_string(),
+        "127.0.0.1:33042".to_string(),
+        "127.0.0.1:33043".to_string(),
+        "127.0.0.1:33044".to_string(),
     ];
-    let keeper_addr = "127.0.0.1:33028".to_string();
-    let (tx1, tx2, tx3, tx4) = setup(backs.clone(), keeper_addr).await?;
+    let keeper_addr = vec![
+        "127.0.0.1:33045".to_string(),
+        "127.0.0.1:33046".to_string()
+    ];
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
     let bin_client = lab3::new_bin_client(backs.clone()).await?;
     let STRING_LEN = 30;
 
@@ -323,18 +375,24 @@ async fn test_bins_same_key_massive_set_get() -> TribResult<()> {
     let _ = tx2.send(()).await;
     let _ = tx3.send(()).await;
     let _ = tx4.send(()).await;
+    let _ = tx5.send(()).await;
+    let _ = tx6.send(()).await;
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_signup_users() -> TribResult<()> {
     let backs = vec![
-        "127.0.0.1:33045".to_string(),
-        "127.0.0.1:33046".to_string(),
-        "127.0.0.1:33047".to_string(),
+        "127.0.0.1:33051".to_string(),
+        "127.0.0.1:33052".to_string(),
+        "127.0.0.1:33053".to_string(),
+        "127.0.0.1:33054".to_string(),
     ];
-    let keeper_addr = "127.0.0.1:33048".to_string();
-    let (tx1, tx2, tx3, tx4) = setup(backs.clone(), keeper_addr).await?;
+    let keeper_addr = vec![
+        "127.0.0.1:33055".to_string(),
+        "127.0.0.1:33056".to_string()
+    ];
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
     let bc = lab3::new_bin_client(backs.clone()).await?;
     let frontend = lab3::new_front(bc).await?;
 
@@ -376,18 +434,24 @@ async fn test_signup_users() -> TribResult<()> {
     let _ = tx2.send(()).await;
     let _ = tx3.send(()).await;
     let _ = tx4.send(()).await;
+    let _ = tx5.send(()).await;
+    let _ = tx6.send(()).await;
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_signup_users_less_than_20() -> TribResult<()> {
     let backs = vec![
-        "127.0.0.1:33075".to_string(),
-        "127.0.0.1:33076".to_string(),
-        "127.0.0.1:33077".to_string(),
+        "127.0.0.1:33061".to_string(),
+        "127.0.0.1:33062".to_string(),
+        "127.0.0.1:33063".to_string(),
+        "127.0.0.1:33064".to_string(),
     ];
-    let keeper_addr = "127.0.0.1:33078".to_string();
-    let (tx1, tx2, tx3, tx4) = setup(backs.clone(), keeper_addr).await?;
+    let keeper_addr = vec![
+        "127.0.0.1:33065".to_string(),
+        "127.0.0.1:33066".to_string()
+    ];
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
     let bc = lab3::new_bin_client(backs.clone()).await?;
     let frontend = lab3::new_front(bc).await?;
 
@@ -421,18 +485,24 @@ async fn test_signup_users_less_than_20() -> TribResult<()> {
     let _ = tx2.send(()).await;
     let _ = tx3.send(()).await;
     let _ = tx4.send(()).await;
+    let _ = tx5.send(()).await;
+    let _ = tx6.send(()).await;
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_simple_tribs_1_and_3() -> TribResult<()> {
     let backs = vec![
-        "127.0.0.1:33185".to_string(),
-        "127.0.0.1:33186".to_string(),
-        "127.0.0.1:33187".to_string(),
+        "127.0.0.1:33071".to_string(),
+        "127.0.0.1:33072".to_string(),
+        "127.0.0.1:33073".to_string(),
+        "127.0.0.1:33074".to_string(),
     ];
-    let keeper_addr = "127.0.0.1:33188".to_string();
-    let (tx1, tx2, tx3, tx4) = setup(backs.clone(), keeper_addr).await?;
+    let keeper_addr = vec![
+        "127.0.0.1:33075".to_string(),
+        "127.0.0.1:33076".to_string()
+    ];
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
     let bc = lab3::new_bin_client(backs.clone()).await?;
     let frontend = lab3::new_front(bc).await?;
 
@@ -466,18 +536,24 @@ async fn test_simple_tribs_1_and_3() -> TribResult<()> {
     let _ = tx2.send(()).await;
     let _ = tx3.send(()).await;
     let _ = tx4.send(()).await;
+    let _ = tx5.send(()).await;
+    let _ = tx6.send(()).await;
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_simple_tribs_2() -> TribResult<()> {
     let backs = vec![
-        "127.0.0.1:33285".to_string(),
-        "127.0.0.1:33286".to_string(),
-        "127.0.0.1:33287".to_string(),
+        "127.0.0.1:33081".to_string(),
+        "127.0.0.1:33082".to_string(),
+        "127.0.0.1:33083".to_string(),
+        "127.0.0.1:33084".to_string(),
     ];
-    let keeper_addr = "127.0.0.1:33288".to_string();
-    let (tx1, tx2, tx3, tx4) = setup(backs.clone(), keeper_addr).await?;
+    let keeper_addr = vec![
+        "127.0.0.1:33085".to_string(),
+        "127.0.0.1:33086".to_string()
+    ];
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
     let bc = lab3::new_bin_client(backs.clone()).await?;
     let frontend = lab3::new_front(bc).await?;
 
@@ -515,6 +591,8 @@ async fn test_simple_tribs_2() -> TribResult<()> {
     let _ = tx2.send(()).await;
     let _ = tx3.send(()).await;
     let _ = tx4.send(()).await;
+    let _ = tx5.send(()).await;
+    let _ = tx6.send(()).await;
     Ok(())
 }
 
@@ -522,12 +600,16 @@ async fn test_simple_tribs_2() -> TribResult<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_home_correctness() -> TribResult<()> {
     let backs = vec![
-        "127.0.0.1:33385".to_string(),
-        "127.0.0.1:33386".to_string(),
-        "127.0.0.1:33387".to_string(),
+        "127.0.0.1:33091".to_string(),
+        "127.0.0.1:33092".to_string(),
+        "127.0.0.1:33093".to_string(),
+        "127.0.0.1:33094".to_string(),
     ];
-    let keeper_addr = "127.0.0.1:33388".to_string();
-    let (tx1, tx2, tx3, tx4) = setup(backs.clone(), keeper_addr).await?;
+    let keeper_addr = vec![
+        "127.0.0.1:33095".to_string(),
+        "127.0.0.1:33096".to_string()
+    ];
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
     let bc = lab3::new_bin_client(backs.clone()).await?;
     let frontend = lab3::new_front(bc).await?;
 
@@ -577,6 +659,8 @@ async fn test_home_correctness() -> TribResult<()> {
     let _ = tx2.send(()).await;
     let _ = tx3.send(()).await;
     let _ = tx4.send(()).await;
+    let _ = tx5.send(()).await;
+    let _ = tx6.send(()).await;
     Ok(())
 }
 
