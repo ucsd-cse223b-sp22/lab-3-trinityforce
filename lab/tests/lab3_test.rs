@@ -112,20 +112,25 @@ async fn shutdown_multiple_channels(shut_chans: Vec<MpscSender<()>>, exclude_ind
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_single_list_append_one_node_dead() -> TribResult<()> {
+    // Der Ring des Nibelungen:
+    // Once a little elf try to snatch the precious backend server data from the holy Rhine River.
+    // And thy should be aware of the imminent dangers and call upon our mighty keeper to protect the holy consistency of our data
+    // Time to return the data back to Rhine River pal pal.
     let keeper_addresses = generate_addresses(1, false);
     let backend_addresses = generate_addresses(5, true);
     let (back_shut_vec, keeper_shut_vec) = setup(backend_addresses.clone(), keeper_addresses.clone()).await?;
-    println!("Begin serve!");
+    println!("The story begins, backends and keepers rise up!");
     let bin_client = lab3::new_bin_client(backend_addresses.clone()).await?;
     let adapter = bin_client.bin("alice").await?;
     let _ = adapter.list_append(&KeyValue { key: "key1".to_string(), value: "val1".to_string() }).await?;
+    println!("And he elf wrecked one part of Rhine riverbacks and snatched the treasures");
     let _ = back_shut_vec[1].send(()).await;
     let get_res = adapter.list_get("key1").await?.0;
-    println!("{:?}", get_res);
+    println!("List retrieved: {:?}", get_res);
     if get_res.len() != 1 || get_res[0] != "val1" {
         assert!(false, "test_single_list_append_one_node_dead: list get not correct: {:?}", get_res);
     }
-    println!("Begin sleep!");
+    println!("And thy shall seek for the holy keeper to move the data within next 20 seconds!...");
     tokio::time::sleep(Duration::from_secs(20)).await;
     let _ = shutdown_multiple_channels(keeper_shut_vec, vec![]).await;
     let _ = shutdown_multiple_channels(back_shut_vec, vec![1]).await;
