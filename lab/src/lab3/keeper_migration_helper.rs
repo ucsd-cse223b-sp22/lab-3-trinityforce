@@ -23,7 +23,7 @@ pub trait KeeperMigrationHelper {
         leave_node_index: usize,
         back_status: Vec<bool>,
     ) -> TribResult<()>;
-    // interval_start: non-inclusive; interval_end: inclusive
+    // interval_start: inclusive; interval_end: inclusive
     async fn migrate_data(
         &self,
         from: usize,
@@ -31,6 +31,7 @@ pub trait KeeperMigrationHelper {
         interval_start: usize,
         interval_end: usize,
     ) -> TribResult<()>;
+    // interval_start: inclusive; interval_end: inclusive
     fn falls_into_interval(
         &self,
         target_string: String,
@@ -76,25 +77,25 @@ impl KeeperMigrationHelper for KeeperMigrator {
     }
 
     // backend servers index
-    // interval_start: non-inclusive; interval_end: inclusive
+    // interval_start: inclusive; interval_end: inclusive
     fn falls_into_interval(
         &self,
         target_string: String,
         interval_start: usize,
         interval_end: usize,
     ) -> bool {
-        if interval_start == interval_end {
-            return false;
-        }
         let mut hasher = DefaultHasher::new();
         target_string.hash(&mut hasher);
         let hash_res = hasher.finish();
         let num_backs = self.backs.clone().len() as u64;
         let delta = (hash_res % num_backs) as usize;
+        if interval_start == interval_end {
+            return delta == interval_end;
+        }
         if interval_start < interval_end {
-            return interval_start < delta && delta <= interval_end;
+            return interval_start <= delta && delta <= interval_end;
         } else {
-            return interval_start < delta || delta <= interval_end;
+            return interval_start <= delta || delta <= interval_end;
         }
     }
 
@@ -123,34 +124,41 @@ impl KeeperMigrationHelper for KeeperMigrator {
             let mut hasher = DefaultHasher::new();
             bin_name.hash(&mut hasher);
             let hash_res = hasher.finish() % (self.backs.len() as u64);
-
-            if interval_start < interval_end {
-                println!(
-                    "bin_name: {}, hash_res: {},interval_start: {}, interval_end: {}",
-                    bin_name, hash_res, interval_start, interval_end
-                );
-                if hash_res <= interval_start as u64 || hash_res > interval_end as u64 {
+            let mut interval_end = interval_end;
+            if !self.falls_into_interval(bin_name, interval_start, interval_end) {
+                continue;
+            }
+            let values_from = client_from.list_get(&element).await?.0;
+            let values_to = client_to.list_get(&element).await?.0;
+            let mut hash_str = HashSet::new();
+            for s in values_to {
+                hash_str.insert(s);
+            }
+            for s in values_from {
+                if hash_str.contains(&s) {
                     continue;
                 }
-                let values_from = client_from.list_get(&element).await?.0;
-                let values_to = client_to.list_get(&element).await?.0;
-                let mut hash_str = HashSet::new();
-                for s in values_to {
-                    hash_str.insert(s);
-                }
-                for s in values_from {
-                    if hash_str.contains(&s) {
-                        continue;
-                    }
-                    client_to
-                        .list_append(&KeyValue {
-                            key: element.to_string(),
-                            value: s,
-                        })
-                        .await?;
-                }
+                client_to
+                    .list_append(&KeyValue {
+                        key: element.to_string(),
+                        value: s.to_string(),
+                    })
+                    .await?;
+                println!(
+                    "{} start appending to {}---key: {}, value: {}",
+                    addr_from.to_string(),
+                    addr_to.to_string(),
+                    element.to_string(),
+                    s.to_string()
+                );
             }
         }
+        client_to
+            .set(&KeyValue {
+                key: VALIDATION_BIT_KEY.to_string(),
+                value: "true".to_string(),
+            })
+            .await?;
         Ok(())
     }
 
