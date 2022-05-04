@@ -30,7 +30,7 @@ use async_trait::async_trait;
 #[async_trait] // VERY IMPORTANT !!!=
 impl storage::KeyString for StorageClient {
     async fn get(&self, key: &str) -> TribResult<Option<String>> {
-        let mut client = match self.chan {
+        let mut client = match &self.chan {
             Some(chan) => TribStorageClient::new(chan.clone()),
             None => self.connect().await?,
         };
@@ -52,7 +52,7 @@ impl storage::KeyString for StorageClient {
     }
 
     async fn set(&self, kv: &storage::KeyValue) -> TribResult<bool> {
-        let mut client = match self.chan {
+        let mut client = match &self.chan {
             Some(chan) => TribStorageClient::new(chan.clone()),
             None => self.connect().await?,
         };
@@ -69,7 +69,7 @@ impl storage::KeyString for StorageClient {
     }
 
     async fn keys(&self, p: &storage::Pattern) -> TribResult<storage::List> {
-        let mut client = match self.chan {
+        let mut client = match &self.chan {
             Some(chan) => TribStorageClient::new(chan.clone()),
             None => self.connect().await?,
         };
@@ -88,7 +88,7 @@ impl storage::KeyString for StorageClient {
 #[async_trait]
 impl storage::KeyList for StorageClient {
     async fn list_get(&self, key: &str) -> TribResult<storage::List> {
-        let mut client = match self.chan {
+        let mut client = match &self.chan {
             Some(chan) => TribStorageClient::new(chan.clone()),
             None => self.connect().await?,
         };
@@ -103,7 +103,7 @@ impl storage::KeyList for StorageClient {
     }
 
     async fn list_append(&self, kv: &storage::KeyValue) -> TribResult<bool> {
-        let mut client = match self.chan {
+        let mut client = match &self.chan {
             Some(chan) => TribStorageClient::new(chan.clone()),
             None => self.connect().await?,
         };
@@ -120,7 +120,7 @@ impl storage::KeyList for StorageClient {
     }
 
     async fn list_remove(&self, kv: &storage::KeyValue) -> TribResult<u32> {
-        let mut client = match self.chan {
+        let mut client = match &self.chan {
             Some(chan) => TribStorageClient::new(chan.clone()),
             None => self.connect().await?,
         };
@@ -137,7 +137,7 @@ impl storage::KeyList for StorageClient {
     }
 
     async fn list_keys(&self, p: &storage::Pattern) -> TribResult<storage::List> {
-        let mut client = match self.chan {
+        let mut client = match &self.chan {
             Some(chan) => TribStorageClient::new(chan.clone()),
             None => self.connect().await?,
         };
@@ -156,7 +156,7 @@ impl storage::KeyList for StorageClient {
 #[async_trait]
 impl storage::Storage for StorageClient {
     async fn clock(&self, at_least: u64) -> TribResult<u64> {
-        let mut client = match self.chan {
+        let mut client = match &self.chan {
             Some(chan) => TribStorageClient::new(chan.clone()),
             None => self.connect().await?,
         };

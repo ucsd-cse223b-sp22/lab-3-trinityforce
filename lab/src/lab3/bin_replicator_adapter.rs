@@ -592,11 +592,13 @@ impl storage::Storage for BinReplicatorAdapter {
             clk = primary_bin_prefix_adapter.clock(at_least).await?;
         } else {
             let primary_bin_prefix_adapter = primary_adapter_option.unwrap();
-            let secondary_bin_prefix_adapter = secondary_adapter_option.unwrap();
+            let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
 
-            let primary_chan_res =
-                update_channel_cache(self.channel_cache.clone(), primary_bin_prefix_adapter.addr)
-                    .await;
+            let primary_chan_res = update_channel_cache(
+                self.channel_cache.clone(),
+                primary_bin_prefix_adapter.addr.clone(),
+            )
+            .await;
             if primary_chan_res.is_err() {
                 println!("Should not happen!")
             }

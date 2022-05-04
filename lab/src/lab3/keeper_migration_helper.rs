@@ -120,8 +120,6 @@ impl KeeperMigrationHelper for KeeperMigrator {
             }
             let mut hasher = DefaultHasher::new();
             bin_name.hash(&mut hasher);
-            let hash_res = hasher.finish() % (self.backs.len() as u64);
-            let mut interval_end = interval_end;
             if !self.falls_into_interval(bin_name, interval_start, interval_end) {
                 continue;
             }
@@ -167,7 +165,7 @@ impl KeeperMigrationHelper for KeeperMigrator {
         let backs_len = self.backs.len();
         let mut index = joined_node_index + backs_len - 1;
         let mut interval_start: usize = 0;
-        let mut interval_end: usize = joined_node_index as usize;
+        let interval_end: usize = joined_node_index as usize;
         while index >= joined_node_index {
             if back_status[index % backs_len] {
                 if index == joined_node_index {

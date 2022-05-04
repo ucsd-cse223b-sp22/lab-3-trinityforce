@@ -247,7 +247,7 @@ impl Server for FrontendServer {
         if k.len() >= MIN_LIST_USER {
             return Ok(());
         }
-        let res = client
+        let _ = client
             .list_append(&storage::KeyValue {
                 key: REGISTERD_USERS_TABLE_NAME.to_string(),
                 value: user.to_string(),

@@ -63,7 +63,8 @@ impl BackStatusScanner for BinStorageClient {
         // scan + update
         let mut back_status = self.back_status_mut.write().await;
         for i in 0..self.backs.len() {
-            let chan_res = update_channel_cache(self.channel_cache.clone(), self.backs[i]).await;
+            let chan_res =
+                update_channel_cache(self.channel_cache.clone(), self.backs[i].clone()).await;
             if chan_res.is_err() {
                 (*back_status)[i] = false;
                 continue;

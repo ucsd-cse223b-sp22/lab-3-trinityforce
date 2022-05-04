@@ -1,12 +1,13 @@
 use super::super::keeper;
 use super::super::keeper::keeper_service_client::KeeperServiceClient;
+use super::bin_client::update_channel_cache;
 use super::client::StorageClient;
 use super::keeper_migration_helper::KeeperMigrationHelper;
 use std::cmp;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::sync::mpsc::{self, SyncSender};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::RwLock;
+use tonic::transport::Channel;
 use tribbler::err::TribResult;
 use tribbler::storage::{KeyString, Storage};
 
@@ -16,6 +17,7 @@ pub struct KeeperMigrator {
     pub this: usize,
     pub my_addr: String,
     backs_status_mut: RwLock<Vec<bool>>,
+    channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
 }
 
 impl KeeperMigrator {
@@ -31,6 +33,7 @@ impl KeeperMigrator {
             my_addr: keepers[this].clone(),
             backs: backs.clone(),
             backs_status_mut: RwLock::new(backs_status.clone()),
+            channel_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -39,6 +42,7 @@ pub struct KeeperClockBroadcastor {
     pub backs: Vec<String>,
     pub keepers: Vec<String>,
     pub this: usize,
+    channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
 }
 
 impl KeeperClockBroadcastor {
@@ -47,6 +51,7 @@ impl KeeperClockBroadcastor {
             this,
             keepers: keepers.clone(),
             backs: backs.clone(),
+            channel_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -69,7 +74,11 @@ impl KeeperMigratorTrait for KeeperMigrator {
                 continue;
             }
             let peer_addr = format!("http://{}", &self.keepers[i]);
-            let mut client = KeeperServiceClient::connect(peer_addr).await?;
+            let chan_res = update_channel_cache(self.channel_cache.clone(), peer_addr).await;
+            if chan_res.is_err() {
+                continue;
+            }
+            let mut client = KeeperServiceClient::new(chan_res.unwrap().clone());
             let resp_res = client.ping(keeper::Heartbeat { value: true }).await;
             if resp_res.is_err() {
                 continue;
@@ -81,7 +90,17 @@ impl KeeperMigratorTrait for KeeperMigrator {
         let mut node_leave_migration_index = None;
         let mut back_status = self.backs_status_mut.write().await;
         for i in 0..self.backs.len() {
-            let client = StorageClient::new(self.backs[i].as_str());
+            let chan_res =
+                update_channel_cache(self.channel_cache.clone(), self.backs[i].clone()).await;
+            if chan_res.is_err() {
+                if (*back_status)[i] == true {
+                    // node leave from jurisdiction
+                    node_leave_migration_index = Some(i);
+                }
+                (*back_status)[i] = false;
+                continue;
+            }
+            let mut client = StorageClient::new(&self.backs[i], Some(chan_res.unwrap().clone()));
             let clock_res = client.get("DUMMY").await;
             if clock_res.is_err() {
                 // server is now down
@@ -126,14 +145,16 @@ pub trait KeeperClockBroadcastorTrait {
 #[async_trait]
 impl KeeperClockBroadcastorTrait for KeeperClockBroadcastor {
     async fn get_clock_send(&self, i: usize) -> TribResult<u64> {
-        let client = StorageClient::new(self.backs[i].as_str());
+        let chan = update_channel_cache(self.channel_cache.clone(), self.backs[i].clone()).await?;
+        let client = StorageClient::new(&self.backs[i], Some(chan));
         let target_clock = client.clock(0).await?;
         // println!("getting clock: {}", target_clock);
         return Ok(target_clock);
     }
 
     async fn update_clock_send(&self, i: usize, max_clock: u64) -> TribResult<()> {
-        let client = StorageClient::new(self.backs[i].as_str());
+        let chan = update_channel_cache(self.channel_cache.clone(), self.backs[i].clone()).await?;
+        let client = StorageClient::new(&self.backs[i], Some(chan));
         client.clock(max_clock).await?;
         // println!("setting clock: {}", max_clock);
         return Ok(());
@@ -146,7 +167,11 @@ impl KeeperClockBroadcastorTrait for KeeperClockBroadcastor {
                 continue;
             }
             let peer_addr = format!("http://{}", &self.keepers[i]);
-            let mut client = KeeperServiceClient::connect(peer_addr).await?;
+            let chan_res = update_channel_cache(self.channel_cache.clone(), peer_addr).await;
+            if chan_res.is_err() {
+                continue;
+            }
+            let mut client = KeeperServiceClient::new(chan_res.unwrap().clone());
             let resp_res = client.ping(keeper::Heartbeat { value: true }).await;
             if resp_res.is_err() {
                 continue;

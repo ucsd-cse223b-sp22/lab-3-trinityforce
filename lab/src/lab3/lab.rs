@@ -160,7 +160,7 @@ pub async fn serve_back(config: BackConfig) -> TribResult<()> {
     let config_addr_string = config_addr_str.replace("localhost", "127.0.0.1");
     let replaced_config_addr_str = config_addr_string.as_str();
     let server_addr: SocketAddr;
-    let parsed_addr = match replaced_config_addr_str.parse::<SocketAddr>() {
+    let _ = match replaced_config_addr_str.parse::<SocketAddr>() {
         Ok(value) => {
             server_addr = value;
         }
@@ -176,7 +176,7 @@ pub async fn serve_back(config: BackConfig) -> TribResult<()> {
                 .serve_with_shutdown(server_addr, async {
                     if !config.ready.is_none() {
                         let ready_chan = config.ready.unwrap();
-                        let sig_sent = ready_chan.clone().send(true);
+                        let _ = ready_chan.clone().send(true);
                     }
                     shut_chan.recv().await;
                 })
@@ -186,7 +186,7 @@ pub async fn serve_back(config: BackConfig) -> TribResult<()> {
         None => {
             if !config.ready.is_none() {
                 let ready_chan = config.ready.unwrap();
-                let sig_sent = ready_chan.clone().send(true);
+                let _ = ready_chan.clone().send(true);
             }
             let server_status = tonic::transport::Server::builder()
                 .add_service(TribStorageServer::new(server))

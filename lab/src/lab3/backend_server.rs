@@ -30,7 +30,7 @@ impl TribStorage for BackendServer {
         // println!("server getting {}", key_cpy);
         let option_value = match self.store.get(&key_str).await {
             Ok(res) => res,
-            Err(e) => {
+            Err(_) => {
                 return Err(Status::unavailable("key error"));
             }
         };
@@ -62,7 +62,7 @@ impl TribStorage for BackendServer {
             .await
         {
             Ok(res) => res,
-            Err(e) => {
+            Err(_) => {
                 return Err(Status::unavailable("set error"));
             }
         };
@@ -86,7 +86,7 @@ impl TribStorage for BackendServer {
             .await
         {
             Ok(res) => res,
-            Err(e) => {
+            Err(_) => {
                 return Err(Status::unavailable("keys retrieve error"));
             }
         };
@@ -104,7 +104,7 @@ impl TribStorage for BackendServer {
         let key_str = key_cpy.as_str();
         let list = match self.store.list_get(key_str).await {
             Ok(res) => res,
-            Err(e) => {
+            Err(_) => {
                 return Err(Status::unavailable("list get error"));
             }
         };
@@ -130,7 +130,7 @@ impl TribStorage for BackendServer {
             .await
         {
             Ok(res) => res,
-            Err(e) => {
+            Err(_) => {
                 return Err(Status::unavailable("list append error"));
             }
         };
@@ -154,7 +154,7 @@ impl TribStorage for BackendServer {
             .await
         {
             Ok(res) => res,
-            Err(e) => {
+            Err(_) => {
                 return Err(Status::unavailable("list remove error"));
             }
         };
@@ -178,7 +178,7 @@ impl TribStorage for BackendServer {
             .await
         {
             Ok(res) => res,
-            Err(e) => {
+            Err(_) => {
                 return Err(Status::unavailable("list keys error"));
             }
         };
@@ -195,7 +195,7 @@ impl TribStorage for BackendServer {
         let timestamp = request_inner.timestamp;
         let ret_ts = match self.store.clock(timestamp).await {
             Ok(res) => res,
-            Err(e) => {
+            Err(_) => {
                 return Err(Status::unavailable("clock error"));
             }
         };

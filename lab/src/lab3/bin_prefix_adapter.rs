@@ -32,14 +32,14 @@ use async_trait::async_trait;
 #[async_trait] // VERY IMPORTANT !!!=
 impl storage::KeyString for BinPrefixAdapter {
     async fn get(&self, key: &str) -> TribResult<Option<String>> {
-        let chan = update_channel_cache(self.channel_cache.clone(), self.addr).await?;
+        let chan = update_channel_cache(self.channel_cache.clone(), self.addr.clone()).await?;
         let storage_client = StorageClient::new(&self.addr, Some(chan));
         let wrapped_key = format!("{}::{}", self.bin, key);
         return storage_client.get(wrapped_key.as_str()).await;
     }
 
     async fn set(&self, kv: &storage::KeyValue) -> TribResult<bool> {
-        let chan = update_channel_cache(self.channel_cache.clone(), self.addr).await?;
+        let chan = update_channel_cache(self.channel_cache.clone(), self.addr.clone()).await?;
         let storage_client = StorageClient::new(&self.addr, Some(chan));
         let wrapped_key = format!("{}::{}", self.bin, kv.key);
         return storage_client
@@ -51,7 +51,7 @@ impl storage::KeyString for BinPrefixAdapter {
     }
 
     async fn keys(&self, p: &storage::Pattern) -> TribResult<storage::List> {
-        let chan = update_channel_cache(self.channel_cache.clone(), self.addr).await?;
+        let chan = update_channel_cache(self.channel_cache.clone(), self.addr.clone()).await?;
         let storage_client = StorageClient::new(&self.addr, Some(chan));
         let wrapped_prefix = format!("{}::{}", self.bin, p.prefix);
         let resp_list = storage_client
@@ -74,14 +74,14 @@ impl storage::KeyString for BinPrefixAdapter {
 #[async_trait] // VERY IMPORTANT !!!=
 impl storage::KeyList for BinPrefixAdapter {
     async fn list_get(&self, key: &str) -> TribResult<storage::List> {
-        let chan = update_channel_cache(self.channel_cache.clone(), self.addr).await?;
+        let chan = update_channel_cache(self.channel_cache.clone(), self.addr.clone()).await?;
         let storage_client = StorageClient::new(&self.addr, Some(chan));
         let wrapped_key = format!("{}::{}", self.bin, key);
         return storage_client.list_get(wrapped_key.as_str()).await;
     }
 
     async fn list_append(&self, kv: &storage::KeyValue) -> TribResult<bool> {
-        let chan = update_channel_cache(self.channel_cache.clone(), self.addr).await?;
+        let chan = update_channel_cache(self.channel_cache.clone(), self.addr.clone()).await?;
         let storage_client = StorageClient::new(&self.addr, Some(chan));
         let wrapped_key = format!("{}::{}", self.bin, kv.key);
         return storage_client
@@ -93,7 +93,7 @@ impl storage::KeyList for BinPrefixAdapter {
     }
 
     async fn list_remove(&self, kv: &storage::KeyValue) -> TribResult<u32> {
-        let chan = update_channel_cache(self.channel_cache.clone(), self.addr).await?;
+        let chan = update_channel_cache(self.channel_cache.clone(), self.addr.clone()).await?;
         let storage_client = StorageClient::new(&self.addr, Some(chan));
         let wrapped_key = format!("{}::{}", self.bin, kv.key);
         return storage_client
@@ -105,7 +105,7 @@ impl storage::KeyList for BinPrefixAdapter {
     }
 
     async fn list_keys(&self, p: &storage::Pattern) -> TribResult<storage::List> {
-        let chan = update_channel_cache(self.channel_cache.clone(), self.addr).await?;
+        let chan = update_channel_cache(self.channel_cache.clone(), self.addr.clone()).await?;
         let storage_client = StorageClient::new(&self.addr, Some(chan));
         let wrapped_prefix = format!("{}::{}", self.bin, p.prefix);
         let resp_list = storage_client
@@ -128,7 +128,7 @@ impl storage::KeyList for BinPrefixAdapter {
 #[async_trait]
 impl storage::Storage for BinPrefixAdapter {
     async fn clock(&self, at_least: u64) -> TribResult<u64> {
-        let chan = update_channel_cache(self.channel_cache.clone(), self.addr).await?;
+        let chan = update_channel_cache(self.channel_cache.clone(), self.addr.clone()).await?;
         let storage_client = StorageClient::new(&self.addr, Some(chan));
         return storage_client.clock(at_least).await;
     }
