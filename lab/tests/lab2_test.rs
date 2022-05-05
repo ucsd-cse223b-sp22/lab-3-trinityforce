@@ -9,7 +9,7 @@ use std::{
 use rand::Rng;
 use lab::{self, lab3};
 use tokio::{sync::mpsc::Sender as MpscSender};
-use tribbler::{config::KeeperConfig};
+use tribbler::{config::KeeperConfig, trib::MAX_FOLLOWING};
 #[allow(unused_imports)]
 use tribbler::{
     self,
@@ -230,21 +230,10 @@ async fn test_concurrent_follow() -> TribResult<()> {
     frontend0.sign_up(speechless_professor).await?;
 
     let mut promises = vec![];
-    let NUM_CONCURRENCY = 10;
+    const NUM_CONCURRENCY: i32 = 100;
     let mut error_count = 0;
 
-    // for i in 0..NUM_CONCURRENCY {
-    //     promises.push(frontend.follow(crazy_fan_johnny_su, speechless_professor));
-    // }
-
-    // for promise in promises {
-    //     let res = promise.await;
-    //     if res.is_err() {
-    //         error_count += 1;
-    //     }
-    // }
-
-    for i in 0..NUM_CONCURRENCY {
+    for _ in 0..NUM_CONCURRENCY {
         let bc = lab3::new_bin_client(backs.clone()).await?;
         let frontend = lab3::new_front(bc).await?;
         promises.push(tokio::task::spawn(async move { frontend.follow(crazy_fan_johnny_su, speechless_professor).await }));
@@ -278,6 +267,183 @@ async fn test_concurrent_follow() -> TribResult<()> {
     let _ = tx6.send(()).await;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_follow_max() -> TribResult<()> {
+    let backs = vec![
+        "127.0.0.1:40020".to_string(),
+        "127.0.0.1:40021".to_string(),
+        "127.0.0.1:40022".to_string(),
+        "127.0.0.1:40023".to_string(),
+    ];
+    let keeper_addr = vec![
+        "127.0.0.1:40024".to_string(),
+        "127.0.0.1:40025".to_string(),
+    ];
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone().clone()).await?;
+    let bc = lab3::new_bin_client(backs.clone()).await?;
+    let frontend = lab3::new_front(bc).await?;
+
+    let crazy_fan_johnny_su = "johnnysu";
+    frontend.sign_up(crazy_fan_johnny_su).await?;
+
+    let num_follow = 10;
+    let mut error_count = 0;
+
+    for i in 0..num_follow {
+        frontend.sign_up(format!("user{}", i).as_str()).await?;
+    }
+    
+
+    for i in 0..num_follow {
+        let res = frontend.follow(crazy_fan_johnny_su, format!("user{}", i).as_str()).await;
+        if res.is_err() {
+            error_count += 1;
+        }
+    }
+
+    let following_list = frontend.following(crazy_fan_johnny_su).await?;
+    println!("test_follow final following list: {:?}", following_list);
+
+    if error_count != num_follow - MAX_FOLLOWING {
+        panic!("Only {} follow fails, allowed max follow is {}", error_count, MAX_FOLLOWING);
+    }
+    
+
+    let _ = tx1.send(()).await;
+    let _ = tx2.send(()).await;
+    let _ = tx3.send(()).await;
+    let _ = tx4.send(()).await;
+    let _ = tx5.send(()).await;
+    let _ = tx6.send(()).await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_concurrent_follow_max() -> TribResult<()> {
+    let backs = vec![
+        "127.0.0.1:40000".to_string(),
+        "127.0.0.1:40001".to_string(),
+        "127.0.0.1:40002".to_string(),
+        "127.0.0.1:40003".to_string(),
+    ];
+    let keeper_addr = vec![
+        "127.0.0.1:40004".to_string(),
+        "127.0.0.1:40005".to_string(),
+    ];
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone().clone()).await?;
+    let bc = lab3::new_bin_client(backs.clone()).await?;
+    let frontend = lab3::new_front(bc).await?;
+
+    let crazy_fan_johnny_su = "johnnysu";
+    frontend.sign_up(crazy_fan_johnny_su).await?;
+
+    let num_concurrency = 50;
+    let mut error_count = 0;
+
+    for i in 0..num_concurrency {
+        frontend.sign_up(format!("user{}", i).as_str()).await?;
+    }
+    
+
+    let mut promises = vec![];
+
+    for i in 0..num_concurrency {
+        let bc = lab3::new_bin_client(backs.clone()).await?;
+        let frontend = lab3::new_front(bc).await?;
+        promises.push(tokio::task::spawn(async move { frontend.follow(crazy_fan_johnny_su, format!("user{}", i).as_str()).await }));
+    }
+
+    for promise in promises {
+        let res = promise.await?;
+        if res.is_err() {
+            error_count += 1;
+        }
+    }
+
+    let following_list = frontend.following(crazy_fan_johnny_su).await?;
+    println!("test_concurrent_follow final following list: {:?}", following_list);
+
+    if error_count != num_concurrency - MAX_FOLLOWING {
+        panic!("Only {} follow fails, allowed max follow is {}", error_count, MAX_FOLLOWING);
+    }
+    
+
+    let _ = tx1.send(()).await;
+    let _ = tx2.send(()).await;
+    let _ = tx3.send(()).await;
+    let _ = tx4.send(()).await;
+    let _ = tx5.send(()).await;
+    let _ = tx6.send(()).await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_follow_logic() -> TribResult<()> {
+    let backs = vec![
+        "127.0.0.1:40010".to_string(),
+        "127.0.0.1:40011".to_string(),
+        "127.0.0.1:40012".to_string(),
+        "127.0.0.1:40013".to_string(),
+    ];
+    let keeper_addr = vec![
+        "127.0.0.1:40014".to_string(),
+        "127.0.0.1:40015".to_string(),
+    ];
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone().clone()).await?;
+    let bc = lab3::new_bin_client(backs.clone()).await?;
+    let frontend = lab3::new_front(bc).await?;
+
+    let random_user = vec![51,71,5,18,75,72,13,19,70,39,10,85,1,64,80,67,12,25,59,98,81,34,73,66,19,90,81,77,41,95,7,1,79,65,1,70,69,12,97,79,76,13,29,54,65,20,85,42,42,26,65,70,81,72,89,16,87,58,58,37,72,36,97,69,23,98,83,4,57,11,45,58,68,1,32,12,20,82,71,60,71,98,95,56,59,37,35,53,66,96,69,73,62,69,33,57,51,58,66,21,36,30,76,6,40,28,80,51,95,60,14,82,68,26,24,80,13,50,41,20,84,67,19,29,76,75,51,23,88,66,39,15,97,36,60,33,40,51,0,40,91,82,7,71,91,21,68,49,39,75,77,35,36,80,87,83,66,93,40,12,47,17,16,76,98,0,17,30,81,87,45,1,41,38,51,25,67,24,2,63,45,36,82,5,17,64,91,74,30,20,78,32,9,89,72,31,24,88,24,78,94,22,88,45,94,52,98,94,7,24,18,75,51,54,83,9,80,77,29,82,79,61,22,36,32,42,32,58,26,9,14,11,96,97,38,80,85,42,56,96,4,78,83,0,61,86,3,30,78,39,81,62,43,36,80,16,77,65,10,31,21,81,42,79,85,55,98,20,61,60,57,90,66,37,43,65,54,39,3,62,31,27,21,97,85,88,32,25,78,27,82,47,58,64,6,15,53,0,68,34,23,38,17,72,18,66,76,95,4,41,54,94,54,63,69,5,44,58,17,9,2,42,81,64,3,63,46,90,38,27,84,61,85,96,7,74,23,36,82,82,48,53,23,66,94,88,53,83,80,3,10,29,97,22,60,95,95,92,9,27,26,19,20,11,97,36,82,23,19,77,16,78,84,67,15,15,2,87,55,15,25,98,94,90,25,32,43,65,30,64,39,15,85,40,53,51,0,25,17,26];
+    let crazy_fan_johnny_su = "johnnysu";
+    frontend.sign_up(crazy_fan_johnny_su).await?;
+
+    let num_user = 15;
+
+    for i in 0..num_user {
+        frontend.sign_up(format!("user{}", i).as_str()).await?;
+    }
+    
+    let num_folllow_unfollow = 200;
+
+    for i in 0..num_folllow_unfollow {
+        let bc = lab3::new_bin_client(backs.clone()).await?;
+        let frontend = lab3::new_front(bc).await?;
+        if random_user[i] % 2 == 0 {
+            let _ = frontend.follow(format!("user{}", random_user[i*2] % num_user).as_str(), format!("user{}", random_user[i*2+1] % num_user).as_str()).await;
+        } else {
+            let _ = frontend.unfollow(format!("user{}", random_user[i*2]  % num_user).as_str(), format!("user{}", random_user[i*2+1] % num_user).as_str()).await;
+        }
+    }
+
+    for i in 0..num_user {
+        let bc = lab3::new_bin_client(backs.clone()).await?;
+        let frontend = lab3::new_front(bc).await?;
+        let following = frontend.following(format!("user{}", i).as_str()).await?;
+        println!("user{}: {:?}", i, following);
+    }
+
+    for i in 0..num_user {
+        for j in 0..num_user {
+            if i != j {
+                let bc = lab3::new_bin_client(backs.clone()).await?;
+                let frontend = lab3::new_front(bc).await?;
+                let following = frontend.is_following(format!("user{}", i).as_str(), format!("user{}", j).as_str()).await?;
+                print!("{} follow {} is {} ", i, j, following);
+            }
+        }
+        println!();
+    }
+
+    let _ = tx1.send(()).await;
+    let _ = tx2.send(()).await;
+    let _ = tx3.send(()).await;
+    let _ = tx4.send(()).await;
+    let _ = tx5.send(()).await;
+    let _ = tx6.send(()).await;
+    Ok(())
+}
+
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_bins_diff_keys_massive_set_get() -> TribResult<()> {

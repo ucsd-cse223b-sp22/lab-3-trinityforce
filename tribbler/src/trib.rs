@@ -26,7 +26,7 @@ pub const MIN_LIST_USER: usize = 20;
 
 /// Maximum count of users that one can follow
 #[allow(dead_code)]
-pub const MAX_FOLLOWING: usize = 2000;
+pub const MAX_FOLLOWING: usize = 5;
 
 /// A [Trib] is a post by a user to the tribbler service.
 #[derive(Serialize, Deserialize, Debug, Clone)]
