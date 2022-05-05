@@ -32,6 +32,22 @@ impl BinStorageClient {
             channel_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
+
+    pub fn new_with_channel(
+        backs: &Vec<String>,
+        channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
+    ) -> Self {
+        let mut back_status = vec![];
+        for _ in 0..backs.len() {
+            back_status.push(false);
+        }
+        Self {
+            backs: backs.clone(),
+            back_status_mut: RwLock::new(back_status),
+            last_scan_ts: RwLock::new(0),
+            channel_cache,
+        }
+    }
 }
 
 use async_trait::async_trait;
@@ -100,6 +116,29 @@ pub(crate) async fn update_channel_cache(
         let chan = Endpoint::from_shared(back_addr.clone())?.connect().await?;
         (*channel_cache_write).insert(back_addr, chan.clone());
         Ok(chan)
+    }
+}
+
+impl BinStorageClient {
+    pub fn bin_with_backs(
+        &self,
+        name: &str,
+        backs_status: &Vec<bool>,
+    ) -> tribbler::err::TribResult<Box<dyn Storage>> {
+        let mut hasher = DefaultHasher::new();
+        name.hash(&mut hasher);
+        let hash_res = hasher.finish();
+        let len = backs_status.len() as u64;
+        let ind = (hash_res % len) as u32;
+        let storage_bin_replicator_adapter = BinReplicatorAdapter::new(
+            ind,
+            self.backs.clone(),
+            name,
+            backs_status.clone(),
+            self.channel_cache.clone(),
+        );
+        // println!("{}", target_back_addr);
+        Ok(Box::new(storage_bin_replicator_adapter))
     }
 }
 

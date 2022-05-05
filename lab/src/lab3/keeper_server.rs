@@ -1,21 +1,33 @@
 use super::super::keeper;
 use super::super::keeper::keeper_service_client::KeeperServiceClient;
 use super::bin_client::update_channel_cache;
+use super::bin_client::BinStorageClient;
 use super::client::StorageClient;
+use super::constants::{BACK_STATUS_STORE_KEY, KEEPER_STORE_NAME, MIGRATION_LOG_KEY};
 use super::keeper_migration_helper::KeeperMigrationHelper;
+use serde::Deserialize;
+use serde::Serialize;
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tonic::transport::Channel;
 use tribbler::err::TribResult;
+use tribbler::storage::BinStorage;
+use tribbler::storage::KeyValue;
 use tribbler::storage::{KeyString, Storage};
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MigrationLog {
+    pub back_id: usize,
+    pub leave: bool,
+}
 pub struct KeeperMigrator {
     pub backs: Vec<String>,
     pub keepers: Vec<String>,
     pub this: usize,
     pub my_addr: String,
+    pub activated: bool,
     backs_status_mut: RwLock<Vec<bool>>,
     channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
 }
@@ -32,8 +44,27 @@ impl KeeperMigrator {
             keepers: keepers.clone(),
             my_addr: keepers[this].clone(),
             backs: backs.clone(),
+            activated: false,
             backs_status_mut: RwLock::new(backs_status.clone()),
             channel_cache: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub fn new_with_channel(
+        this: usize,
+        keepers: Vec<String>,
+        backs: &Vec<String>,
+        backs_status: Vec<bool>,
+        channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
+    ) -> Self {
+        Self {
+            this,
+            keepers: keepers.clone(),
+            my_addr: keepers[this].clone(),
+            backs: backs.clone(),
+            activated: false,
+            backs_status_mut: RwLock::new(backs_status.clone()),
+            channel_cache,
         }
     }
 }
@@ -54,17 +85,31 @@ impl KeeperClockBroadcastor {
             channel_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
+
+    pub fn new_with_channel(
+        this: usize,
+        keepers: Vec<String>,
+        backs: &Vec<String>,
+        channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
+    ) -> Self {
+        Self {
+            this,
+            keepers: keepers.clone(),
+            backs: backs.clone(),
+            channel_cache,
+        }
+    }
 }
 
 use async_trait::async_trait;
 #[async_trait]
 pub trait KeeperMigratorTrait {
-    async fn check_migration(&self) -> TribResult<()>;
+    async fn check_migration(&mut self) -> TribResult<()>;
 }
 
 #[async_trait]
 impl KeeperMigratorTrait for KeeperMigrator {
-    async fn check_migration(&self) -> TribResult<()> {
+    async fn check_migration<'life0>(self: &'life0 mut KeeperMigrator) -> TribResult<()> {
         // my own jurisdiction starts from self.this
         // gonna cover the gap if my next keepers are down
         // scan for next available keeper
@@ -84,6 +129,11 @@ impl KeeperMigratorTrait for KeeperMigrator {
                 continue;
             }
             smallest_keeper_alive = cmp::min(smallest_keeper_alive, i);
+        }
+        if smallest_keeper_alive != self.this {
+            // only smallest keeper alive is in charge of migration
+            self.activated = false;
+            return Ok(());
         }
         // scan 300
         let mut node_join_migration_index = None;
@@ -118,19 +168,123 @@ impl KeeperMigratorTrait for KeeperMigrator {
                 (*back_status)[i] = true;
             }
         }
-        if smallest_keeper_alive != self.this {
+        /*if smallest_keeper_alive != self.this {
             // only smallest keeper alive is in charge of migration
             return Ok(());
-        }
+        }*/
         let back_status_copy = back_status.clone();
+        let bin_store = BinStorageClient::new_with_channel(&self.backs, self.channel_cache.clone());
+        let bin_client = bin_store.bin_with_backs(KEEPER_STORE_NAME, &back_status_copy)?;
+
+        // if the keeper is in its first round, fetch back status and migration log
+        if !self.activated {
+            node_join_migration_index = None;
+            node_leave_migration_index = None;
+            let back_status_str = bin_client.get(BACK_STATUS_STORE_KEY).await?;
+            let migration_log_str = bin_client.get(MIGRATION_LOG_KEY).await?;
+            if back_status_str.is_none() {
+                bin_client
+                    .set(&KeyValue {
+                        key: BACK_STATUS_STORE_KEY.to_string(),
+                        value: serde_json::to_string(&back_status_copy)?,
+                    })
+                    .await?;
+            }
+            if migration_log_str.is_none() {
+                let back_status_old: Vec<bool> = serde_json::from_str(&back_status_str.unwrap())?;
+                for i in 0..back_status.len() {
+                    if back_status[i] != back_status_old[i] {
+                        if back_status[i] {
+                            node_join_migration_index = Some(i);
+                        } else {
+                            node_leave_migration_index = Some(i);
+                        }
+                    }
+                }
+            } else {
+                let migration_log: MigrationLog =
+                    serde_json::from_str(&migration_log_str.unwrap())?;
+                if migration_log.leave {
+                    node_leave_migration_index = Some(migration_log.back_id);
+                } else {
+                    node_join_migration_index = Some(migration_log.back_id);
+                }
+            }
+        }
         drop(back_status);
+
         if node_join_migration_index.is_some() {
-            self.migrate_to_joined_node(node_join_migration_index.unwrap(), back_status_copy)
+            self.activated = true;
+            let node_join_index = node_join_migration_index.unwrap();
+            let log_str = serde_json::to_string(&MigrationLog {
+                back_id: node_join_index,
+                leave: false,
+            })?;
+            // append migration log
+            bin_client
+                .set(&KeyValue {
+                    key: BACK_STATUS_STORE_KEY.to_string(),
+                    value: log_str.clone(),
+                })
                 .await?;
+            // update back status
+            bin_client
+                .set(&KeyValue {
+                    key: BACK_STATUS_STORE_KEY.to_string(),
+                    value: serde_json::to_string(&back_status_copy)?,
+                })
+                .await?;
+            self.migrate_to_joined_node(node_join_index, back_status_copy)
+                .await?;
+            bin_client
+                .set(&KeyValue {
+                    key: BACK_STATUS_STORE_KEY.to_string(),
+                    value: "".to_string(),
+                })
+                .await?;
+            return Ok(());
         } else if node_leave_migration_index.is_some() {
+            self.activated = true;
+            let node_leave_index = node_leave_migration_index.unwrap();
+            let log_str = serde_json::to_string(&MigrationLog {
+                back_id: node_leave_index,
+                leave: true,
+            })?;
+            // append migration log
+            bin_client
+                .set(&KeyValue {
+                    key: BACK_STATUS_STORE_KEY.to_string(),
+                    value: log_str.clone(),
+                })
+                .await?;
+            // update back status
+            bin_client
+                .set(&KeyValue {
+                    key: BACK_STATUS_STORE_KEY.to_string(),
+                    value: serde_json::to_string(&back_status_copy)?,
+                })
+                .await?;
             self.migrate_to_left_node(node_leave_migration_index.unwrap(), back_status_copy)
                 .await?;
+            bin_client
+                .set(&KeyValue {
+                    key: BACK_STATUS_STORE_KEY.to_string(),
+                    value: "".to_string(),
+                })
+                .await?;
+            return Ok(());
         }
+        // only update back status if the keeper is in its first round or view change happens
+        if !self.activated {
+            self.activated = true;
+            bin_client
+                .set(&KeyValue {
+                    key: BACK_STATUS_STORE_KEY.to_string(),
+                    value: serde_json::to_string(&back_status_copy)?,
+                })
+                .await?;
+        }
+
         Ok(())
     }
 }

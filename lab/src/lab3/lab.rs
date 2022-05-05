@@ -3,15 +3,18 @@ use crate::lab3::keeper_server::{KeeperClockBroadcastorTrait, KeeperMigratorTrai
 use super::constants::{BRAODCAST_CLOCK_INTERVAL, MIGRATION_INTERVAL, VALIDATION_BIT_KEY};
 use super::keeper_rpc_receiver::KeeperRPCReceiver;
 use super::keeper_server::{KeeperClockBroadcastor, KeeperMigrator};
+use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio::time;
 use tribbler::rpc::trib_storage_server::TribStorageServer;
-use tribbler::storage;
 use tribbler::storage::BinStorage;
+use tribbler::storage::{self, KeyString};
 use tribbler::trib;
 use tribbler::{config::BackConfig, err::TribResult};
 
-use super::bin_client::BinStorageClient;
+use super::bin_client::{update_channel_cache, BinStorageClient};
 use super::frontend_server::FrontendServer;
 use tribbler::config::KeeperConfig;
 
@@ -42,8 +45,14 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
     let backs = kc.backs.clone();
     let mut backs_status = vec![];
     let mut num_valid = 0;
+    let channel_cache = Arc::new(RwLock::new(HashMap::new()));
     for ind in 0..backs.len() {
-        let client = new_client(backs[ind].as_str()).await?;
+        let chan_res = update_channel_cache(channel_cache.clone(), backs[ind].clone()).await;
+        if chan_res.is_err() {
+            continue;
+        }
+        let client = StorageClient::new(backs[ind].as_str(), Some(chan_res.unwrap().clone()));
+        // let client = new_client(backs[ind].as_str()).await?;
         let res = client.get(VALIDATION_BIT_KEY).await;
         if res.is_err() {
             backs_status.push(false);
@@ -56,7 +65,11 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
     }
     if num_valid == 0 {
         for ind in 0..backs.len() {
-            let client = new_client(backs[ind].as_str()).await?;
+            let chan_res = update_channel_cache(channel_cache.clone(), backs[ind].clone()).await;
+            if chan_res.is_err() {
+                continue;
+            }
+            let client = StorageClient::new(backs[ind].as_str(), Some(chan_res.unwrap().clone()));
             let _ = client
                 .set(&storage::KeyValue {
                     key: VALIDATION_BIT_KEY.to_string(),
@@ -65,10 +78,23 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
                 .await?;
         }
     }
-    let keeper_migrator =
-        KeeperMigrator::new(kc.this, kc.addrs.clone(), &kc.backs.clone(), backs_status);
-    let keeper_clock_broadcastor =
-        KeeperClockBroadcastor::new(kc.this, kc.addrs.clone(), &kc.backs.clone());
+    /*let mut keeper_migrator =
+    KeeperMigrator::new(kc.this, kc.addrs.clone(), &kc.backs.clone(), backs_status);*/
+    let mut keeper_migrator = KeeperMigrator::new_with_channel(
+        kc.this,
+        kc.addrs.clone(),
+        &kc.backs.clone(),
+        backs_status,
+        channel_cache.clone(),
+    );
+    /*let keeper_clock_broadcastor =
+    KeeperClockBroadcastor::new(kc.this, kc.addrs.clone(), &kc.backs.clone());*/
+    let keeper_clock_broadcastor = KeeperClockBroadcastor::new_with_channel(
+        kc.this,
+        kc.addrs.clone(),
+        &kc.backs.clone(),
+        channel_cache.clone(),
+    );
 
     tokio::spawn(async move {
         let mut broadcast_logical_interval =
