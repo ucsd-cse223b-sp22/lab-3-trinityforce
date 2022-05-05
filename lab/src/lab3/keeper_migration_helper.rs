@@ -1,3 +1,6 @@
+use crate::lab3::bin_client::update_channel_cache;
+use crate::lab3::client::StorageClient;
+
 use super::constants::{LIST_LOG_KEYWORD, STR_LOG_KEYWORD, VALIDATION_BIT_KEY};
 use super::keeper_server::KeeperMigrator;
 use super::new_client;
@@ -5,7 +8,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use tribbler::err::TribResult;
-use tribbler::storage::{KeyValue, Pattern};
+use tribbler::storage::{KeyList, KeyString, KeyValue, Pattern};
 
 use async_trait::async_trait;
 #[async_trait]
@@ -42,7 +45,9 @@ pub trait KeeperMigrationHelper {
 #[async_trait]
 impl KeeperMigrationHelper for KeeperMigrator {
     async fn extract_raw_keys_from_addr(&self, addr: &str) -> TribResult<Vec<String>> {
-        let raw_client = new_client(addr).await?;
+        let chan_res = update_channel_cache(self.channel_cache.clone(), addr.to_string()).await?;
+        let raw_client = StorageClient::new(addr, Some(chan_res));
+        //let raw_client = new_client(addr).await?;
         let keys_list = raw_client
             .list_keys(&Pattern {
                 prefix: "".to_string(),
@@ -109,8 +114,11 @@ impl KeeperMigrationHelper for KeeperMigrator {
         );
         let addr_from = &self.backs[from];
         let addr_to = &self.backs[to];
-        let client_from = new_client(addr_from).await?;
-        let client_to = new_client(addr_to).await?;
+        let chan_from =
+            update_channel_cache(self.channel_cache.clone(), addr_from.to_string()).await?;
+        let chan_to = update_channel_cache(self.channel_cache.clone(), addr_to.to_string()).await?;
+        let client_from = StorageClient::new(addr_from, Some(chan_from));
+        let client_to = StorageClient::new(addr_to, Some(chan_to));
         let raw_key_list = self.extract_raw_keys_from_addr(addr_from).await?;
         for element in raw_key_list.iter() {
             let bin_name = self.extract_bin_name_from_raw_key(element);

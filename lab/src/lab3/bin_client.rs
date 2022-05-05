@@ -120,6 +120,7 @@ pub(crate) async fn update_channel_cache(
 }
 
 impl BinStorageClient {
+    // This function is provided for keeper to use, so it do not need to scan
     pub fn bin_with_backs(
         &self,
         name: &str,

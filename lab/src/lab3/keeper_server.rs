@@ -29,7 +29,7 @@ pub struct KeeperMigrator {
     pub my_addr: String,
     pub activated: bool,
     backs_status_mut: RwLock<Vec<bool>>,
-    channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
+    pub channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
 }
 
 impl KeeperMigrator {
@@ -191,13 +191,16 @@ impl KeeperMigratorTrait for KeeperMigrator {
                     .await?;
             }
             if migration_log_str.is_none() {
-                let back_status_old: Vec<bool> = serde_json::from_str(&back_status_str.unwrap())?;
-                for i in 0..back_status.len() {
-                    if back_status[i] != back_status_old[i] {
-                        if back_status[i] {
-                            node_join_migration_index = Some(i);
-                        } else {
-                            node_leave_migration_index = Some(i);
+                if !back_status_str.is_none() {
+                    let back_status_old: Vec<bool> =
+                        serde_json::from_str(&back_status_str.unwrap())?;
+                    for i in 0..back_status.len() {
+                        if back_status[i] != back_status_old[i] {
+                            if back_status[i] {
+                                node_join_migration_index = Some(i);
+                            } else {
+                                node_leave_migration_index = Some(i);
+                            }
                         }
                     }
                 }
