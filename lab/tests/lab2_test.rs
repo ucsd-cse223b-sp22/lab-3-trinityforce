@@ -108,7 +108,7 @@ async fn test_simple_follow() -> TribResult<()> {
         "127.0.0.1:33954".to_string(),
         "127.0.0.1:33955".to_string(),
     ];
-    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone().clone()).await?;
+    let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
     let bc = lab3::new_bin_client(backs.clone()).await?;
     let frontend = lab3::new_front(bc).await?;
 
@@ -338,7 +338,7 @@ async fn test_concurrent_follow_max() -> TribResult<()> {
     let crazy_fan_johnny_su = "johnnysu";
     frontend.sign_up(crazy_fan_johnny_su).await?;
 
-    let num_concurrency = 50;
+    let num_concurrency = 1000;
     let mut error_count = 0;
 
     for i in 0..num_concurrency {
@@ -407,6 +407,12 @@ async fn test_follow_logic() -> TribResult<()> {
     let num_folllow_unfollow = 200;
 
     for i in 0..num_folllow_unfollow {
+        if i == 60 {
+            let _ = tx4.send(()).await;
+        }
+        if i == 60 {
+            let _ = tx5.send(()).await;
+        }
         let bc = lab3::new_bin_client(backs.clone()).await?;
         let frontend = lab3::new_front(bc).await?;
         if random_user[i] % 2 == 0 {
@@ -414,6 +420,7 @@ async fn test_follow_logic() -> TribResult<()> {
         } else {
             let _ = frontend.unfollow(format!("user{}", random_user[i*2]  % num_user).as_str(), format!("user{}", random_user[i*2+1] % num_user).as_str()).await;
         }
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
     for i in 0..num_user {
