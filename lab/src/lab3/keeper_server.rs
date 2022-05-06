@@ -120,8 +120,8 @@ impl KeeperMigratorTrait for KeeperMigrator {
             if i == self.this {
                 continue;
             }
-            let peer_addr = format!("http://{}", &self.keepers[i]);
-            let chan_res = update_channel_cache(self.channel_cache.clone(), peer_addr).await;
+            let chan_res =
+                update_channel_cache(self.channel_cache.clone(), self.keepers[i].clone()).await;
             if chan_res.is_err() {
                 println!("ping channel failed: from {}, to {}", self.this, i);
                 continue;
