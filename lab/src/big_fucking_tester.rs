@@ -218,3 +218,16 @@ impl BigFuckingTesterTrait for BigFuckingTester {
         }
     }
 }
+
+pub fn generate_random_username(len: usize) -> String {
+    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    let mut rng = rand::thread_rng();
+
+    let password: String = (0..len)
+        .map(|_| {
+            let idx = rng.gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect();
+    return format!("{}{}", "a", password);
+}
