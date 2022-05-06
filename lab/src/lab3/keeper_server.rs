@@ -115,6 +115,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
         // gonna cover the gap if my next keepers are down
         // scan for next available keeper
         let mut smallest_keeper_alive = self.this;
+        println!("{}, begin broadcasting", self.this);
         for i in 0..self.keepers.len() {
             if i == self.this {
                 continue;
@@ -122,13 +123,16 @@ impl KeeperMigratorTrait for KeeperMigrator {
             let peer_addr = format!("http://{}", &self.keepers[i]);
             let chan_res = update_channel_cache(self.channel_cache.clone(), peer_addr).await;
             if chan_res.is_err() {
+                println!("ping channel failed: from {}, to {}", self.this, i);
                 continue;
             }
             let mut client = KeeperServiceClient::new(chan_res.unwrap().clone());
             let resp_res = client.ping(keeper::Heartbeat { value: true }).await;
             if resp_res.is_err() {
+                println!("ping failed: from {}, to {}", self.this, i);
                 continue;
             }
+            println!("ping success: from {}, to {}", self.this, i);
             smallest_keeper_alive = cmp::min(smallest_keeper_alive, i);
         }
         if smallest_keeper_alive != self.this {

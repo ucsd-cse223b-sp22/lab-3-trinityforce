@@ -67,6 +67,7 @@ async fn test_single_keeper_successor_node_join() -> TribResult<()> {
 async fn test_simple_keeper_kill() -> TribResult<()> {
     // Adventure time:
     let mut bft = BigFuckingTester::new(5, vec![0, 2, 4], 3, vec![0, 1, 2]).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
     bft.keeper_node_leave(1).await;
     tokio::time::sleep(Duration::from_secs(10)).await;
     bft.cleanup().await;
