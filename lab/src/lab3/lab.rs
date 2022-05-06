@@ -73,6 +73,7 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
                 continue;
             }
             let client = StorageClient::new(backs[ind].as_str(), Some(chan_res.unwrap().clone()));
+            println!("Keeper {} send validation to Back {}", kc.this, ind);
             let _ = client
                 .set(&storage::KeyValue {
                     key: VALIDATION_BIT_KEY.to_string(),
@@ -99,6 +100,8 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
         channel_cache.clone(),
     );
 
+    let (broadcast_shutdown_sender, mut broadcast_shutdown_receiver) =
+        tokio::sync::mpsc::channel(1);
     tokio::spawn(async move {
         let mut broadcast_logical_interval =
             time::interval(time::Duration::from_secs(BRAODCAST_CLOCK_INTERVAL));
@@ -107,16 +110,23 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
                 _ = broadcast_logical_interval.tick() => {
                     let _ = keeper_clock_broadcastor.broadcast_logical_clock().await;
                 }
+                _ = broadcast_shutdown_receiver.recv() => {
+                    break;
+                }
             }
         }
     });
 
+    let (migrate_shut_sender, mut migrate_shut_receiver) = tokio::sync::mpsc::channel(1);
     tokio::spawn(async move {
         let mut migrate_interval = time::interval(time::Duration::from_secs(MIGRATION_INTERVAL));
         loop {
             tokio::select! {
                 _ = migrate_interval.tick() => {
                     let _ = keeper_migrator.check_migration().await;
+                }
+                _ = migrate_shut_receiver.recv() => {
+                    break;
                 }
             }
         }
@@ -144,6 +154,8 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
                         let sig_sent = ready_chan.clone().send(true);
                     }
                     shut_chan.recv().await;
+                    migrate_shut_sender.clone().send(()).await;
+                    broadcast_shutdown_sender.clone().send(()).await;
                 })
                 .await;
             if server_status.is_err() {}
@@ -161,6 +173,7 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
         }
     }
 
+    println!("Keeper {} shutting down", kc.this);
     Ok(())
 }
 
@@ -224,6 +237,7 @@ pub async fn serve_back(config: BackConfig) -> TribResult<()> {
             if server_status.is_err() {}
         }
     }
+    println!("Backend {} shutting down", config.addr);
     Ok(())
 }
 

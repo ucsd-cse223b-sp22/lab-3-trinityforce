@@ -1,3 +1,4 @@
+use super::lab2;
 use super::lab3;
 use rand::Rng;
 use std::{
@@ -92,19 +93,27 @@ async fn setup_single_back(backend_addr: String) -> MpscSender<()> {
     return shut_tx.clone();
 }
 
-fn generate_addresses(back_len: usize, keeper_len: usize) -> (Vec<String>, Vec<String>) {
+fn generate_addresses(
+    back_len: usize,
+    keeper_len: usize,
+    prefix_id: usize,
+) -> (Vec<String>, Vec<String>) {
+    // prefix_id ranges from 01 to 65
+    // 01000 - 65000
+    let back_port_num_base = (prefix_id * 1000) as u32;
+    let keeper_port_num_base = (prefix_id * 1000 + 700) as u32;
     let mut back_addrs = vec![];
-    let mut prefix = "127.0.0.1:57";
+    let mut prefix = "127.0.0.1:";
     for i in 0..back_len {
         let u32_i: u32 = i as u32;
-        let full_str = format!("{}{:03}", prefix, u32_i);
+        let full_str = format!("{}{:05}", prefix, back_port_num_base + u32_i);
         back_addrs.push(full_str.to_string());
     }
     let mut keeper_addrs = vec![];
-    prefix = "127.0.0.1:43";
+    prefix = "127.0.0.1:";
     for i in 0..keeper_len {
         let u32_i: u32 = i as u32;
-        let full_str = format!("{}{:03}", prefix, u32_i);
+        let full_str = format!("{}{:05}", prefix, keeper_port_num_base + u32_i);
         keeper_addrs.push(full_str.to_string());
     }
     return (back_addrs, keeper_addrs);
@@ -119,12 +128,20 @@ pub struct BigFuckingTester {
 
 impl BigFuckingTester {
     pub async fn new(
+        // 01 - 65 as port testing prefix
+        testing_sequence_id: usize,
         back_len: usize,
         initial_back_live_indices: Vec<usize>,
         keeper_len: usize,
         initial_keeper_live_indices: Vec<usize>,
     ) -> Self {
-        let (back_addresses, keeper_addresses) = generate_addresses(back_len, keeper_len);
+        if testing_sequence_id < 1 || testing_sequence_id > 65 {
+            panic!("Prefix id must ranges from 1 to 65");
+        }
+        let (back_addresses, keeper_addresses) =
+            generate_addresses(back_len, keeper_len, testing_sequence_id);
+        println!("Backend addresses: {:?}", back_addresses.clone());
+        println!("Keeper addresses: {:?}", keeper_addresses.clone());
         let (back_shut_vec, keeper_shut_vec) = setup(
             back_addresses.clone(),
             initial_back_live_indices.clone(),
@@ -200,4 +217,17 @@ impl BigFuckingTesterTrait for BigFuckingTester {
             self.back_node_leave(i).await;
         }
     }
+}
+
+pub fn generate_random_username(len: usize) -> String {
+    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    let mut rng = rand::thread_rng();
+
+    let password: String = (0..len)
+        .map(|_| {
+            let idx = rng.gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect();
+    return format!("{}{}", "a", password);
 }

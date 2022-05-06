@@ -234,8 +234,8 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
         let end = start + backs.len();
         let mut primary_adapter_option = None;
         let mut secondary_adapter_option = None;
-        println!("start {}, end {}", start, end);
-        println!("back_status: {:?};", self.back_status);
+        // println!("start {}, end {}", start, end);
+        // println!("back_status: {:?};", self.back_status);
         for i in start..end {
             // start scanning the primary replica
             let primary_backend_index = i % backs.len();
@@ -251,13 +251,13 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
                     StorageClient::new(primary_backend_addr, Some(primary_chan_res.unwrap()));
                 let primary_resp = primary_pinger.get("DUMMY").await;
                 if primary_resp.is_err() {
-                    println!(
-                        "primary addr: {}; primary_resp: none",
-                        primary_backend_index
-                    );
+                    // println!(
+                    //     "primary addr: {}; primary_resp: none",
+                    //     primary_backend_index
+                    // );
                     primary_adapter_option = None;
                 } else {
-                    println!("primary addr: {}; primary_resp: OK", primary_backend_index);
+                    // println!("primary addr: {}; primary_resp: OK", primary_backend_index);
                     primary_adapter_option = Some(BinPrefixAdapter::new(
                         &primary_backend_addr,
                         &self.bin.to_string(),
@@ -289,20 +289,20 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
                     let secondary_resp = secondary_pinger.get("DUMMY").await;
                     if secondary_resp.is_err() {
                         secondary_adapter_option = None;
-                        println!(
-                            "secondary addr: {}; secondary_resp: None",
-                            secondary_backend_index
-                        );
+                        // println!(
+                        //     "secondary addr: {}; secondary_resp: None",
+                        //     secondary_backend_index
+                        // );
                     } else {
                         secondary_adapter_option = Some(BinPrefixAdapter::new(
                             &secondary_backend_addr,
                             &self.bin.to_string(),
                             self.channel_cache.clone(),
                         ));
-                        println!(
-                            "secondary addr: {}; secondary_resp: OK",
-                            secondary_backend_index
-                        );
+                        // println!(
+                        //     "secondary addr: {}; secondary_resp: OK",
+                        //     secondary_backend_index
+                        // );
                     }
                 } else {
                     println!("Channel get failed!");
