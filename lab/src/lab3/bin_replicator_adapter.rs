@@ -67,14 +67,26 @@ impl storage::KeyString for BinReplicatorAdapter {
         let wrapped_key = format!("{}{}", STR_LOG_PREFIX, key);
 
         // Get ther first alive and valid bin.
-        let adapter_option = self.get_read_replicas_access().await;
+        /*let adapter_option = self.get_read_replicas_access().await;
         if adapter_option.is_none() {
             return Err(Box::new(NotEnoughServers));
         }
-        let bin_prefix_adapter = adapter_option.unwrap();
+        let bin_prefix_adapter = adapter_option.unwrap();*/
+        let (primary_adapter_option, secondary_adapter_option) =
+            self.get_read_replicas_access_new().await;
+        if primary_adapter_option.is_none() && secondary_adapter_option.is_none() {
+            return Err(Box::new(NotEnoughServers));
+        }
 
         // Get all logs
-        let logs_string = bin_prefix_adapter.list_get(&wrapped_key).await?.0;
+        let logs_string = self
+            .get_action(
+                &primary_adapter_option,
+                &secondary_adapter_option,
+                &wrapped_key,
+            )
+            .await?;
+        //let logs_string = bin_prefix_adapter.list_get(&wrapped_key).await?.0;
         let mut logs_struct = vec![];
         for element in logs_string {
             let log_entry: SortableLogRecord = serde_json::from_str(&element).unwrap();
@@ -188,10 +200,99 @@ pub trait BinReplicatorHelper {
         kv: &storage::KeyValue,
         action: &str,
     ) -> TribResult<(u64, u64)>;
+    async fn get_action(
+        &self,
+        primary_adapter_option: &Option<BinPrefixAdapter>,
+        secondary_adapter_option: &Option<BinPrefixAdapter>,
+        wrapped_key: &str,
+    ) -> TribResult<Vec<String>>;
+    async fn keys_action(
+        &self,
+        primary_adapter_option: &Option<BinPrefixAdapter>,
+        secondary_adapter_option: &Option<BinPrefixAdapter>,
+        p: &storage::Pattern,
+    ) -> TribResult<Vec<String>>;
+    async fn get_read_replicas_access_new(
+        &self,
+    ) -> (Option<BinPrefixAdapter>, Option<BinPrefixAdapter>);
 }
 
 #[async_trait]
 impl BinReplicatorHelper for BinReplicatorAdapter {
+    async fn get_read_replicas_access_new(
+        &self,
+    ) -> (Option<BinPrefixAdapter>, Option<BinPrefixAdapter>) {
+        let backs = self.backs.clone();
+        let start = self.hash_index as usize;
+        let end = start + backs.len();
+        let mut primary_adapter_option = None;
+        let mut secondary_adapter_option = None;
+        // println!("start {}, end {}", start, end);
+        // println!("back_status: {:?};", self.back_status);
+        for i in start..end {
+            // start scanning the primary replica
+            let primary_backend_index = i % backs.len();
+            if self.back_status[primary_backend_index] == false {
+                continue;
+            }
+            let primary_backend_addr = &backs[primary_backend_index];
+            let primary_chan_res =
+                update_channel_cache(self.channel_cache.clone(), primary_backend_addr.clone())
+                    .await;
+            if !primary_chan_res.is_err() {
+                let primary_pinger =
+                    StorageClient::new(primary_backend_addr, Some(primary_chan_res.unwrap()));
+                let primary_resp = primary_pinger.get(VALIDATION_BIT_KEY).await;
+                if primary_resp.is_err() || primary_resp.unwrap().is_none() {
+                    primary_adapter_option = None;
+                } else {
+                    primary_adapter_option = Some(BinPrefixAdapter::new(
+                        &primary_backend_addr,
+                        &self.bin.to_string(),
+                        self.channel_cache.clone(),
+                    ));
+                }
+            } else {
+                println!("Channel get failed!");
+            }
+
+            // start scanning the secondary replica
+            for j in i + 1..end {
+                let secondary_backend_index = j % backs.len();
+                if self.back_status[secondary_backend_index] == false {
+                    continue;
+                }
+                let secondary_backend_addr = &backs[secondary_backend_index];
+                let secondary_chan_res = update_channel_cache(
+                    self.channel_cache.clone(),
+                    secondary_backend_addr.clone(),
+                )
+                .await;
+
+                if !secondary_chan_res.is_err() {
+                    let secondary_pinger = StorageClient::new(
+                        secondary_backend_addr,
+                        Some(secondary_chan_res.unwrap()),
+                    );
+                    let secondary_resp = secondary_pinger.get(VALIDATION_BIT_KEY).await;
+                    if secondary_resp.is_err() || secondary_resp.unwrap().is_none() {
+                        secondary_adapter_option = None;
+                    } else {
+                        secondary_adapter_option = Some(BinPrefixAdapter::new(
+                            &secondary_backend_addr,
+                            &self.bin.to_string(),
+                            self.channel_cache.clone(),
+                        ));
+                    }
+                } else {
+                    println!("Channel get failed!");
+                }
+                break;
+            }
+            break;
+        }
+        return (primary_adapter_option, secondary_adapter_option);
+    }
     async fn get_read_replicas_access(&self) -> Option<BinPrefixAdapter> {
         let backs = self.backs.clone();
         let start = self.hash_index as usize;
@@ -251,13 +352,8 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
                     StorageClient::new(primary_backend_addr, Some(primary_chan_res.unwrap()));
                 let primary_resp = primary_pinger.get("DUMMY").await;
                 if primary_resp.is_err() {
-                    // println!(
-                    //     "primary addr: {}; primary_resp: none",
-                    //     primary_backend_index
-                    // );
                     primary_adapter_option = None;
                 } else {
-                    // println!("primary addr: {}; primary_resp: OK", primary_backend_index);
                     primary_adapter_option = Some(BinPrefixAdapter::new(
                         &primary_backend_addr,
                         &self.bin.to_string(),
@@ -289,20 +385,12 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
                     let secondary_resp = secondary_pinger.get("DUMMY").await;
                     if secondary_resp.is_err() {
                         secondary_adapter_option = None;
-                        // println!(
-                        //     "secondary addr: {}; secondary_resp: None",
-                        //     secondary_backend_index
-                        // );
                     } else {
                         secondary_adapter_option = Some(BinPrefixAdapter::new(
                             &secondary_backend_addr,
                             &self.bin.to_string(),
                             self.channel_cache.clone(),
                         ));
-                        // println!(
-                        //     "secondary addr: {}; secondary_resp: OK",
-                        //     secondary_backend_index
-                        // );
                     }
                 } else {
                     println!("Channel get failed!");
@@ -335,6 +423,78 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
         });
         logs_struct.dedup_by(|a, b| a.clock_id == b.clock_id); // Is it necessary to dedup?
         Ok(logs_struct)
+    }
+
+    async fn get_action(
+        &self,
+        primary_adapter_option: &Option<BinPrefixAdapter>,
+        secondary_adapter_option: &Option<BinPrefixAdapter>,
+        wrapped_key: &str,
+    ) -> TribResult<Vec<String>> {
+        if primary_adapter_option.is_some() && secondary_adapter_option.is_some() {
+            let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
+            let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
+            let vec_primary = primary_bin_prefix_adapter.list_get(wrapped_key).await;
+            if !vec_primary.is_err() {
+                return Ok(vec_primary.unwrap().0);
+            }
+            let vec_secondary = secondary_bin_prefix_adapter.list_get(wrapped_key).await;
+            if !vec_secondary.is_err() {
+                return Ok(vec_secondary.unwrap().0);
+            }
+            return Ok(vec![] as Vec<String>);
+        } else if primary_adapter_option.is_some() {
+            let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
+            let vec_primary = primary_bin_prefix_adapter.list_get(wrapped_key).await;
+            if !vec_primary.is_err() {
+                return Ok(vec_primary.unwrap().0);
+            }
+            return Ok(vec![] as Vec<String>);
+        } else if secondary_adapter_option.is_some() {
+            let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
+            let vec_secondary = secondary_bin_prefix_adapter.list_get(wrapped_key).await;
+            if !vec_secondary.is_err() {
+                return Ok(vec_secondary.unwrap().0);
+            }
+            return Ok(vec![] as Vec<String>);
+        }
+        return Ok(vec![] as Vec<String>);
+    }
+
+    async fn keys_action(
+        &self,
+        primary_adapter_option: &Option<BinPrefixAdapter>,
+        secondary_adapter_option: &Option<BinPrefixAdapter>,
+        p: &storage::Pattern,
+    ) -> TribResult<Vec<String>> {
+        if primary_adapter_option.is_some() && secondary_adapter_option.is_some() {
+            let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
+            let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
+            let vec_primary = primary_bin_prefix_adapter.list_keys(p).await;
+            if !vec_primary.is_err() {
+                return Ok(vec_primary.unwrap().0);
+            }
+            let vec_secondary = secondary_bin_prefix_adapter.list_keys(p).await;
+            if !vec_secondary.is_err() {
+                return Ok(vec_secondary.unwrap().0);
+            }
+            return Ok(vec![] as Vec<String>);
+        } else if primary_adapter_option.is_some() {
+            let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
+            let vec_primary = primary_bin_prefix_adapter.list_keys(p).await;
+            if !vec_primary.is_err() {
+                return Ok(vec_primary.unwrap().0);
+            }
+            return Ok(vec![] as Vec<String>);
+        } else if secondary_adapter_option.is_some() {
+            let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
+            let vec_secondary = secondary_bin_prefix_adapter.list_keys(p).await;
+            if !vec_secondary.is_err() {
+                return Ok(vec_secondary.unwrap().0);
+            }
+            return Ok(vec![] as Vec<String>);
+        }
+        return Ok(vec![] as Vec<String>);
     }
 
     async fn append_log_action(
@@ -489,31 +649,6 @@ impl storage::KeyList for BinReplicatorAdapter {
             )
             .await?;
 
-        // Try to count the removal number. Assume removal number of primary is always greater or equal to that in secondary.
-        // let mut logs_struct = vec![];
-        // let mut chosen_clock_id = 0;
-
-        // if primary_adapter_option.is_some() {
-        //     let primary_bin_prefix_adapter = primary_adapter_option.unwrap();
-        //     // Get all logs. Sort and dedup.
-        //     logs_struct = self
-        //         .get_sorted_log_struct(&primary_bin_prefix_adapter, &wrapped_key)
-        //         .await?;
-        //     chosen_clock_id = primary_clock_id;
-        // } else {
-        //     let secondary_bin_prefix_adapter = secondary_adapter_option.unwrap();
-        //     // Get all logs. Sort and dedup.
-        //     logs_struct = self
-        //         .get_sorted_log_struct(&secondary_bin_prefix_adapter, &wrapped_key)
-        //         .await?;
-        //     chosen_clock_id = secondary_clock_id;
-        // }
-        /*let mut chosen_clock_id = 0;
-        if primary_clock_id == 0 {
-            chosen_clock_id = secondary_clock_id;
-        } else {
-            chosen_clock_id = primary_clock_id;
-        }*/
         let chosen_clock_id = cmp::max(primary_clock_id, secondary_clock_id);
         let adapter_option = self.get_read_replicas_access().await;
         if adapter_option.is_none() {
