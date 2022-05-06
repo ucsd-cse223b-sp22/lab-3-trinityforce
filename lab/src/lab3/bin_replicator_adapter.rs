@@ -137,12 +137,18 @@ impl storage::KeyString for BinReplicatorAdapter {
         let wrapped_prefx = format!("{}{}", STR_LOG_PREFIX, p.prefix);
 
         // Get the first alive and valid bin.
-        let adapter_option = self.get_read_replicas_access().await;
+        /*let adapter_option = self.get_read_replicas_access().await;
         if adapter_option.is_none() {
+            return Err(Box::new(NotEnoughServers));
+        }*/
+
+        let (primary_adapter_option, secondary_adapter_option) =
+            self.get_read_replicas_access_new().await;
+        if primary_adapter_option.is_none() && secondary_adapter_option.is_none() {
             return Err(Box::new(NotEnoughServers));
         }
 
-        let bin_prefix_adapter = adapter_option.unwrap();
+        /*let bin_prefix_adapter = adapter_option.unwrap();
 
         let potential_keys = bin_prefix_adapter
             .list_keys(&storage::Pattern {
@@ -150,11 +156,24 @@ impl storage::KeyString for BinReplicatorAdapter {
                 suffix: p.suffix.to_string(),
             })
             .await?
-            .0;
+            .0;*/
+
+        let potential_keys = self
+            .keys_action(
+                &primary_adapter_option,
+                &secondary_adapter_option,
+                &storage::Pattern {
+                    prefix: wrapped_prefx.to_string(),
+                    suffix: p.suffix.to_string(),
+                },
+            )
+            .await?;
 
         let mut true_keys = vec![];
         for key in potential_keys {
-            let logs_string = bin_prefix_adapter.list_get(&key).await?.0;
+            let logs_string = self
+                .get_action(&primary_adapter_option, &secondary_adapter_option, &key)
+                .await?;
             let mut logs_struct = vec![];
             for element in logs_string {
                 let log_entry: SortableLogRecord = serde_json::from_str(&element).unwrap();
@@ -215,6 +234,12 @@ pub trait BinReplicatorHelper {
     async fn get_read_replicas_access_new(
         &self,
     ) -> (Option<BinPrefixAdapter>, Option<BinPrefixAdapter>);
+    async fn get_sorted_log_struct_new(
+        &self,
+        primary_adapter_option: &Option<BinPrefixAdapter>,
+        secondary_adapter_option: &Option<BinPrefixAdapter>,
+        wrapped_key: &str,
+    ) -> TribResult<Vec<SortableLogRecord>>;
 }
 
 #[async_trait]
@@ -402,6 +427,36 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
         return (primary_adapter_option, secondary_adapter_option);
     }
 
+    async fn get_sorted_log_struct_new(
+        &self,
+        primary_adapter_option: &Option<BinPrefixAdapter>,
+        secondary_adapter_option: &Option<BinPrefixAdapter>,
+        wrapped_key: &str,
+    ) -> TribResult<Vec<SortableLogRecord>> {
+        let logs_string = self
+            .get_action(
+                primary_adapter_option,
+                secondary_adapter_option,
+                &wrapped_key,
+            )
+            .await?;
+        let mut logs_struct = vec![];
+        for element in logs_string {
+            let log_entry: SortableLogRecord = serde_json::from_str(&element).unwrap();
+            logs_struct.push(log_entry);
+        }
+        logs_struct.sort_unstable_by(|a, b| {
+            if a.clock_id < b.clock_id {
+                return Ordering::Less;
+            } else if a.clock_id > b.clock_id {
+                return Ordering::Greater;
+            }
+            return Ordering::Equal;
+        });
+        logs_struct.dedup_by(|a, b| a.clock_id == b.clock_id); // Is it necessary to dedup?
+        Ok(logs_struct)
+    }
+
     async fn get_sorted_log_struct(
         &self,
         bin_prefix_adapter: &BinPrefixAdapter,
@@ -573,7 +628,7 @@ impl storage::KeyList for BinReplicatorAdapter {
         let wrapped_key = format!("{}{}", LIST_LOG_PREFIX, key);
 
         // Get ther first alive and valid bin.
-        let adapter_option = self.get_read_replicas_access().await;
+        /*let adapter_option = self.get_read_replicas_access().await;
         if adapter_option.is_none() {
             return Err(Box::new(NotEnoughServers));
         }
@@ -582,6 +637,20 @@ impl storage::KeyList for BinReplicatorAdapter {
         // Get all logs. Sort and dedup.
         let logs_struct = self
             .get_sorted_log_struct(&bin_prefix_adapter, &wrapped_key)
+            .await?;*/
+        let (primary_adapter_option, secondary_adapter_option) =
+            self.get_read_replicas_access_new().await;
+        if primary_adapter_option.is_none() && secondary_adapter_option.is_none() {
+            return Err(Box::new(NotEnoughServers));
+        }
+
+        // Get all logs
+        let logs_struct = self
+            .get_sorted_log_struct_new(
+                &primary_adapter_option,
+                &secondary_adapter_option,
+                &wrapped_key,
+            )
             .await?;
 
         // Replay the whole log.
@@ -650,7 +719,23 @@ impl storage::KeyList for BinReplicatorAdapter {
             .await?;
 
         let chosen_clock_id = cmp::max(primary_clock_id, secondary_clock_id);
-        let adapter_option = self.get_read_replicas_access().await;
+
+        let (primary_adapter_option, secondary_adapter_option) =
+            self.get_read_replicas_access_new().await;
+        if primary_adapter_option.is_none() && secondary_adapter_option.is_none() {
+            return Err(Box::new(NotEnoughServers));
+        }
+
+        // Get all logs
+        let logs_struct = self
+            .get_sorted_log_struct_new(
+                &primary_adapter_option,
+                &secondary_adapter_option,
+                &wrapped_key,
+            )
+            .await?;
+
+        /*let adapter_option = self.get_read_replicas_access().await;
         if adapter_option.is_none() {
             return Err(Box::new(NotEnoughServers));
         }
@@ -658,7 +743,7 @@ impl storage::KeyList for BinReplicatorAdapter {
         let bin_prefix_adapter = adapter_option.unwrap();
         let logs_struct = self
             .get_sorted_log_struct(&bin_prefix_adapter, &wrapped_key)
-            .await?;
+            .await?;*/
         // println!("chosen_clock_id: {}", chosen_clock_id);
         // println!("{:?}", logs_struct);
 
