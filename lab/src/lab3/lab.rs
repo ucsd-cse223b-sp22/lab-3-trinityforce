@@ -73,6 +73,7 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
                 continue;
             }
             let client = StorageClient::new(backs[ind].as_str(), Some(chan_res.unwrap().clone()));
+            println!("Keeper {} send validation to Back {}", kc.this, ind);
             let _ = client
                 .set(&storage::KeyValue {
                     key: VALIDATION_BIT_KEY.to_string(),
