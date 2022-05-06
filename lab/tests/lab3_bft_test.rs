@@ -76,13 +76,13 @@ async fn test_simple_keeper_kill() -> TribResult<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn test_single_keeper_one_back_dead() -> TribResult<()> {
+async fn test_single_keeper_two_backs_dead() -> TribResult<()> {
     let mut bft = BigFuckingTester::new(4, 5, vec![0, 1, 2, 3, 4], 1, vec![0]).await;
     let mut key_val_map = HashMap::new();
     let mut key_bin_map = HashMap::new();
 
     let STRING_LEN = 30;
-    let NUM_KEYS = 777;
+    let NUM_KEYS = 12;
     let bin_client = lab3::new_bin_client(bft.back_addresses.clone()).await?;
 
     for i in 0..NUM_KEYS {
@@ -98,6 +98,8 @@ async fn test_single_keeper_one_back_dead() -> TribResult<()> {
         }).await?;
     }
     bft.back_node_leave(0).await;
+    tokio::time::sleep(Duration::from_secs(20)).await;
+    bft.back_node_leave(1).await;
     tokio::time::sleep(Duration::from_secs(20)).await;
     for key in key_val_map.keys() {
         let bin_name = key_bin_map.get(key).unwrap();

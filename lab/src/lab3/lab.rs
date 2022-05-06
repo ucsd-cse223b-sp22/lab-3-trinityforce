@@ -237,6 +237,7 @@ pub async fn serve_back(config: BackConfig) -> TribResult<()> {
             if server_status.is_err() {}
         }
     }
+    println!("Backend {} shutting down", config.addr);
     Ok(())
 }
 
