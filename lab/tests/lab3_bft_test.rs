@@ -26,7 +26,7 @@ async fn test_single_list_append_one_node_dead() -> TribResult<()> {
     // Once a little elf try to snatch the precious backend server data from the holy Rhine River.
     // And thy should be aware of the imminent dangers and call upon our mighty keeper to protect the holy consistency of our data
     // Time to return the data back to Rhine River pal pal.
-    let mut bft = BigFuckingTester::new(1, 5, vec![0, 1, 2, 3, 4], 1, vec![0]).await;
+    let mut bft = BigFuckingTester::new(10, 5, vec![0, 1, 2, 3, 4], 1, vec![0]).await;
     println!("The story begins, backends and keepers rise up!");
     let bin_client = lab3::new_bin_client(bft.back_addresses.clone()).await?;
     let target_bin = bin_client.bin("alice").await?;
@@ -114,6 +114,67 @@ async fn test_single_keeper_two_backs_dead() -> TribResult<()> {
             assert!(false, "actual: {}, expect: {}", actual_value, expected_value.to_string())
         }
     }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_keeper_leave() -> TribResult<()> {
+    let mut bft = BigFuckingTester::new(11, 5, vec![0, 1, 2, 3, 4], 3, vec![0, 1, 2]).await;
+    
+    let bin_client = lab3::new_bin_client(bft.back_addresses.clone()).await?;
+    let target_bin = bin_client.bin("alice").await?;
+    let _ = target_bin.list_append(&KeyValue { key: "key1".to_string(), value: "val1".to_string() }).await?;
+
+    bft.keeper_node_leave(0).await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    bft.keeper_node_leave(1).await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    bft.back_node_leave(0).await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    let get_res = target_bin.list_get("key1").await?.0;
+    println!("List retrieved: {:?}", get_res);
+    if get_res.len() != 1 || get_res[0] != "val1" {
+        assert!(false, "test_single_list_append_one_node_dead: list get not correct: {:?}", get_res);
+    }
+    println!("And thy shall seek for the holy keeper to move the data within next 20 seconds!...");
+    tokio::time::sleep(Duration::from_secs(20)).await;
+    bft.cleanup().await;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_back_join() -> TribResult<()> {
+    let mut bft = BigFuckingTester::new(12, 5, vec![0, 2, 4], 1, vec![0]).await;
+    
+    let bin_client = lab3::new_bin_client(bft.back_addresses.clone()).await?;
+    let mut target_bin = bin_client.bin("alice").await?;
+    let _ = target_bin.list_append(&KeyValue { key: "key1".to_string(), value: "val1".to_string() }).await?;
+
+    bft.back_join(1).await;
+    tokio::time::sleep(Duration::from_secs(15)).await;
+
+
+    target_bin = bin_client.bin("alice").await?;
+    let _ = target_bin.list_append(&KeyValue { key: "key1".to_string(), value: "val2".to_string() }).await?;
+
+    bft.back_join(3).await;
+    tokio::time::sleep(Duration::from_secs(15)).await;
+
+    target_bin = bin_client.bin("alice").await?;
+    let _ = target_bin.list_append(&KeyValue { key: "key1".to_string(), value: "val3".to_string() }).await?;
+
+    bft.back_node_leave(4).await;
+    tokio::time::sleep(Duration::from_secs(15)).await;
+
+    let get_res = target_bin.list_get("key1").await?.0;
+    println!("List retrieved: {:?}", get_res);
+    if get_res.len() != 3 || get_res[0] != "val1" || get_res[1] != "val2" || get_res[2] != "val3" {
+        assert!(false, "test_single_list_append_one_node_dead: list get not correct: {:?}", get_res);
+    }
+    bft.cleanup().await;
+
     Ok(())
 }
 
