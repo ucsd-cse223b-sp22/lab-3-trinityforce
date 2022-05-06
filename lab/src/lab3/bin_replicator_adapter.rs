@@ -508,12 +508,13 @@ impl storage::KeyList for BinReplicatorAdapter {
         //         .await?;
         //     chosen_clock_id = secondary_clock_id;
         // }
-        let mut chosen_clock_id = 0;
+        /*let mut chosen_clock_id = 0;
         if primary_clock_id == 0 {
             chosen_clock_id = secondary_clock_id;
         } else {
             chosen_clock_id = primary_clock_id;
-        }
+        }*/
+        let chosen_clock_id = cmp::max(primary_clock_id, secondary_clock_id);
         let adapter_option = self.get_read_replicas_access().await;
         if adapter_option.is_none() {
             return Err(Box::new(NotEnoughServers));
