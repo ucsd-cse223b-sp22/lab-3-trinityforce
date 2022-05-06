@@ -5,7 +5,6 @@ use super::bin_client::BinStorageClient;
 use super::client::StorageClient;
 use super::constants::{BACK_STATUS_STORE_KEY, KEEPER_STORE_NAME, MIGRATION_LOG_KEY};
 use super::keeper_helper;
-use super::keeper_migration_helper::KeeperMigrationHelper;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cmp;
@@ -14,7 +13,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tonic::transport::Channel;
 use tribbler::err::TribResult;
-use tribbler::storage::BinStorage;
 use tribbler::storage::KeyValue;
 use tribbler::storage::{KeyString, Storage};
 

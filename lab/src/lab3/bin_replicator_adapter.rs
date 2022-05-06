@@ -5,7 +5,7 @@ use super::constants::{
     APPEND_ACTION, LIST_LOG_PREFIX, REMOVE_ACTION, STR_LOG_PREFIX, VALIDATION_BIT_KEY,
 };
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
+use std::cmp::{self, Ordering};
 use std::collections::{HashMap, HashSet};
 use std::error;
 use std::fmt;
@@ -86,7 +86,7 @@ impl storage::KeyString for BinReplicatorAdapter {
         let mut max_clock: u64 = 0;
         let mut result_str = "";
         for element in logs_struct.iter() {
-            if element.clock_id > max_clock {
+            if element.clock_id >= max_clock {
                 max_clock = element.clock_id;
                 result_str = &element.wrapped_string;
             }
@@ -345,58 +345,64 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
         kv: &storage::KeyValue,
         action: &str,
     ) -> TribResult<(u64, u64)> {
-        // Try to append to entry in the primary
-        let mut is_primary_fail = true;
+        let mut is_primary_fail = false;
+        let mut is_secondary_fail = false;
         let mut primary_clock_id = 0;
         let mut secondary_clock_id = 0;
-        let mut log_entry_str = String::new();
 
-        if primary_adapter_option.is_some() {
+        if primary_adapter_option.is_some() && secondary_adapter_option.is_some() {
             let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
             // get primary clock as unique id
             let primary_clock_id_res = primary_bin_prefix_adapter.clock(0).await;
-            if !primary_clock_id_res.is_err() {
-                is_primary_fail = false;
-                primary_clock_id = primary_clock_id_res.unwrap();
-                let log_entry = SortableLogRecord {
-                    clock_id: primary_clock_id,
-                    wrapped_string: kv.value.to_string(),
-                    action: action.to_string(),
-                };
-                log_entry_str = serde_json::to_string(&log_entry)?;
-                let _ = primary_bin_prefix_adapter
-                    .list_append(&storage::KeyValue {
-                        key: wrapped_key.to_string(),
-                        value: log_entry_str.to_string(),
-                    })
-                    .await;
-            }
-        }
-
-        // Try to append to entry in the secondary
-        if secondary_adapter_option.is_some() {
             let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
             // get secondary clock as unique id if primary is none
             let secondary_clock_id_res = secondary_bin_prefix_adapter.clock(primary_clock_id).await;
-            if !secondary_clock_id_res.is_err() {
+            if primary_clock_id_res.is_err() {
+                is_primary_fail = true;
                 secondary_clock_id = secondary_clock_id_res.unwrap();
-                if is_primary_fail {
-                    let log_entry = SortableLogRecord {
-                        clock_id: secondary_clock_id,
-                        wrapped_string: kv.value.to_string(),
-                        action: action.to_string(),
-                    };
-                    log_entry_str = serde_json::to_string(&log_entry)?;
-                }
-                let _ = secondary_bin_prefix_adapter
-                    .list_append(&storage::KeyValue {
-                        key: wrapped_key.to_string(),
-                        value: log_entry_str.to_string(),
-                    })
-                    .await;
+            } else if secondary_clock_id_res.is_err() {
+                is_secondary_fail = true;
+                primary_clock_id = primary_clock_id_res.unwrap();
+            } else {
+                secondary_clock_id = secondary_clock_id_res.unwrap();
+                primary_clock_id = primary_clock_id_res.unwrap();
             }
+        } else if primary_adapter_option.is_some() {
+            is_secondary_fail = true;
+            let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
+            primary_clock_id = primary_bin_prefix_adapter.clock(0).await?;
+        } else {
+            is_primary_fail = true;
+            let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
+            secondary_clock_id = secondary_bin_prefix_adapter.clock(primary_clock_id).await?;
         }
-
+        let max_clock = cmp::max(primary_clock_id, secondary_clock_id);
+        let log_entry = SortableLogRecord {
+            clock_id: max_clock,
+            wrapped_string: kv.value.to_string(),
+            action: action.to_string(),
+        };
+        let log_entry_str = serde_json::to_string(&log_entry)?;
+        if !is_secondary_fail {
+            let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
+            let _ = secondary_bin_prefix_adapter
+                .list_append(&storage::KeyValue {
+                    key: wrapped_key.to_string(),
+                    value: log_entry_str.to_string(),
+                })
+                .await;
+            let _ = secondary_bin_prefix_adapter.clock(max_clock).await;
+        }
+        if !is_primary_fail {
+            let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
+            let _ = primary_bin_prefix_adapter
+                .list_append(&storage::KeyValue {
+                    key: wrapped_key.to_string(),
+                    value: log_entry_str.to_string(),
+                })
+                .await;
+            let _ = primary_bin_prefix_adapter.clock(max_clock).await;
+        }
         Ok((primary_clock_id, secondary_clock_id))
     }
 }
@@ -484,6 +490,84 @@ impl storage::KeyList for BinReplicatorAdapter {
             .await?;
 
         // Try to count the removal number. Assume removal number of primary is always greater or equal to that in secondary.
+        // let mut logs_struct = vec![];
+        // let mut chosen_clock_id = 0;
+
+        // if primary_adapter_option.is_some() {
+        //     let primary_bin_prefix_adapter = primary_adapter_option.unwrap();
+        //     // Get all logs. Sort and dedup.
+        //     logs_struct = self
+        //         .get_sorted_log_struct(&primary_bin_prefix_adapter, &wrapped_key)
+        //         .await?;
+        //     chosen_clock_id = primary_clock_id;
+        // } else {
+        //     let secondary_bin_prefix_adapter = secondary_adapter_option.unwrap();
+        //     // Get all logs. Sort and dedup.
+        //     logs_struct = self
+        //         .get_sorted_log_struct(&secondary_bin_prefix_adapter, &wrapped_key)
+        //         .await?;
+        //     chosen_clock_id = secondary_clock_id;
+        // }
+        let mut chosen_clock_id = 0;
+        if primary_clock_id == 0 {
+            chosen_clock_id = secondary_clock_id;
+        } else {
+            chosen_clock_id = primary_clock_id;
+        }
+        let adapter_option = self.get_read_replicas_access().await;
+        if adapter_option.is_none() {
+            return Err(Box::new(NotEnoughServers));
+        }
+
+        let bin_prefix_adapter = adapter_option.unwrap();
+        let logs_struct = self
+            .get_sorted_log_struct(&bin_prefix_adapter, &wrapped_key)
+            .await?;
+        // println!("chosen_clock_id: {}", chosen_clock_id);
+        // println!("{:?}", logs_struct);
+
+        let mut removal_num = 0;
+        for element in logs_struct.iter().rev() {
+            if element.clock_id >= chosen_clock_id {
+                continue;
+            }
+            if element.wrapped_string != kv.value {
+                continue;
+            }
+            if element.action == APPEND_ACTION {
+                removal_num += 1;
+            } else if element.action == REMOVE_ACTION {
+                break;
+            } else {
+                println!("The operation is not supported!!!"); // Sanity check for action.
+            }
+        }
+
+        return Ok(removal_num);
+    }
+
+    /*async fn list_remove(&self, kv: &storage::KeyValue) -> TribResult<u32> {
+        let wrapped_key = format!("{}{}", LIST_LOG_PREFIX, kv.key);
+
+        // Get first two "valid" bins.
+        let (primary_adapter_option, secondary_adapter_option) =
+            self.get_write_replicas_access().await;
+        if primary_adapter_option.is_none() && secondary_adapter_option.is_none() {
+            return Err(Box::new(NotEnoughServers));
+        }
+
+        // Try to remove the entry in primary and secondary
+        let (primary_clock_id, secondary_clock_id) = self
+            .append_log_action(
+                &primary_adapter_option,
+                &secondary_adapter_option,
+                &wrapped_key,
+                kv,
+                REMOVE_ACTION,
+            )
+            .await?;
+
+        // Try to count the removal number. Assume removal number of primary is always greater or equal to that in secondary.
         let mut logs_struct = vec![];
         let mut chosen_clock_id = 0;
 
@@ -521,7 +605,7 @@ impl storage::KeyList for BinReplicatorAdapter {
         }
 
         return Ok(removal_num);
-    }
+    }*/
 
     async fn list_keys(&self, p: &storage::Pattern) -> TribResult<storage::List> {
         let wrapped_prefx = format!("{}{}", LIST_LOG_PREFIX, p.prefix);
