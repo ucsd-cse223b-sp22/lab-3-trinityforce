@@ -3,7 +3,6 @@ use crate::lab3::client::StorageClient;
 
 use super::constants::{LIST_LOG_KEYWORD, STR_LOG_KEYWORD, VALIDATION_BIT_KEY};
 use super::keeper_server::KeeperMigrator;
-use super::new_client;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
@@ -273,12 +272,22 @@ impl KeeperMigrationHelper for KeeperMigrator {
         // exclude start itself
         interval_start = (second_predecessor + 1) % backs_len;
         interval_end = first_predecessor;
-        self.migrate_data(first_predecessor, successor, interval_start, interval_end)
-            .await?;
+        let migrate_first = tokio::spawn(self.migrate_data(
+            first_predecessor,
+            successor,
+            interval_start,
+            interval_end,
+        ));
         interval_start = (first_predecessor + 1) % backs_len;
         interval_end = left_node_index;
-        self.migrate_data(successor, second_successor, interval_start, interval_end)
-            .await?;
+        let migrate_second = tokio::spawn(self.migrate_data(
+            successor,
+            second_successor,
+            interval_start,
+            interval_end,
+        ));
+        migrate_first.await?;
+        migrate_second.await?;
         Ok(())
     }
 }
