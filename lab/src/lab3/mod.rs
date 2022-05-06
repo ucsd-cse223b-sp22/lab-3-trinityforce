@@ -174,6 +174,7 @@ mod bin_replicator_adapter;
 mod client;
 mod constants;
 mod frontend_server;
+mod keeper_helper;
 mod keeper_migration_helper;
 mod keeper_rpc_receiver;
 mod keeper_server;

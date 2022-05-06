@@ -272,20 +272,12 @@ impl KeeperMigrationHelper for KeeperMigrator {
         // exclude start itself
         interval_start = (second_predecessor + 1) % backs_len;
         interval_end = first_predecessor;
-        let migrate_first = tokio::spawn(self.migrate_data(
-            first_predecessor,
-            successor,
-            interval_start,
-            interval_end,
-        ));
+        let migrate_first =
+            self.migrate_data(first_predecessor, successor, interval_start, interval_end);
         interval_start = (first_predecessor + 1) % backs_len;
         interval_end = left_node_index;
-        let migrate_second = tokio::spawn(self.migrate_data(
-            successor,
-            second_successor,
-            interval_start,
-            interval_end,
-        ));
+        let migrate_second =
+            self.migrate_data(successor, second_successor, interval_start, interval_end);
         migrate_first.await?;
         migrate_second.await?;
         Ok(())

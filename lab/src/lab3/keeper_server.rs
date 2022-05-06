@@ -4,6 +4,7 @@ use super::bin_client::update_channel_cache;
 use super::bin_client::BinStorageClient;
 use super::client::StorageClient;
 use super::constants::{BACK_STATUS_STORE_KEY, KEEPER_STORE_NAME, MIGRATION_LOG_KEY};
+use super::keeper_helper;
 use super::keeper_migration_helper::KeeperMigrationHelper;
 use serde::Deserialize;
 use serde::Serialize;
@@ -237,8 +238,13 @@ impl KeeperMigratorTrait for KeeperMigrator {
                     value: serde_json::to_string(&back_status_copy)?,
                 })
                 .await?;
-            self.migrate_to_joined_node(node_join_index, back_status_copy)
-                .await?;
+            keeper_helper::migrate_to_joined_node(
+                self.backs.clone(),
+                self.channel_cache.clone(),
+                node_join_index,
+                back_status_copy,
+            )
+            .await?;
             bin_client
                 .set(&KeyValue {
                     key: BACK_STATUS_STORE_KEY.to_string(),
@@ -267,8 +273,13 @@ impl KeeperMigratorTrait for KeeperMigrator {
                     value: serde_json::to_string(&back_status_copy)?,
                 })
                 .await?;
-            self.migrate_to_left_node(node_leave_migration_index.unwrap(), back_status_copy)
-                .await?;
+            keeper_helper::migrate_to_left_node(
+                self.backs.clone(),
+                self.channel_cache.clone(),
+                node_leave_migration_index.unwrap(),
+                back_status_copy,
+            )
+            .await?;
             bin_client
                 .set(&KeyValue {
                     key: BACK_STATUS_STORE_KEY.to_string(),
