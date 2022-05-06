@@ -66,7 +66,12 @@ async fn test_single_keeper_successor_node_join() -> TribResult<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_simple_keeper_kill() -> TribResult<()> {
     // Adventure time:
-    let mut bft = BigFuckingTester::new(3, 5, vec![0, 2, 4], 3, vec![0, 1, 2]).await;
+    let mut bft = BigFuckingTester::new(
+        3, 
+        5, 
+        vec![0, 2, 4], 
+        3, 
+        vec![0, 1, 2]).await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     println!("kill node 1");
     bft.keeper_node_leave(1).await;
