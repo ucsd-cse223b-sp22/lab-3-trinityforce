@@ -3,13 +3,16 @@ use super::super::keeper::keeper_service_client::KeeperServiceClient;
 use super::bin_client::update_channel_cache;
 use super::bin_client::BinStorageClient;
 use super::client::StorageClient;
-use super::constants::{BACK_STATUS_STORE_KEY, KEEPER_STORE_NAME, MIGRATION_LOG_KEY};
+use super::constants::{
+    BACK_STATUS_STORE_KEY, KEEPER_STORE_NAME, MIGRATION_LOG_KEY, SCAN_INTERVAL_CONSTANT,
+};
 use super::keeper_helper;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use tonic::transport::Channel;
 use tribbler::err::TribResult;
@@ -153,7 +156,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
                 (*back_status)[i] = false;
                 continue;
             }
-            let mut client = StorageClient::new(&self.backs[i], Some(chan_res.unwrap().clone()));
+            let client = StorageClient::new(&self.backs[i], Some(chan_res.unwrap().clone()));
             let clock_res = client.get("DUMMY").await;
             if clock_res.is_err() {
                 // server is now down
@@ -226,6 +229,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
                 back_id: node_join_index,
                 leave: false,
             })?;
+            tokio::time::sleep(Duration::from_secs(SCAN_INTERVAL_CONSTANT)).await;
             // append migration log
             bin_client
                 .set(&KeyValue {
@@ -261,6 +265,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
                 back_id: node_leave_index,
                 leave: true,
             })?;
+            tokio::time::sleep(Duration::from_secs(SCAN_INTERVAL_CONSTANT)).await;
             // append migration log
             bin_client
                 .set(&KeyValue {
