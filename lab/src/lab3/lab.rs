@@ -47,6 +47,9 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
     let mut num_valid = 0;
     let channel_cache = Arc::new(RwLock::new(HashMap::new()));
     for ind in 0..backs.len() {
+        backs_status.push(false);
+    }
+    for ind in 0..backs.len() {
         let chan_res = update_channel_cache(channel_cache.clone(), backs[ind].clone()).await;
         if chan_res.is_err() {
             continue;
@@ -55,9 +58,9 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
         // let client = new_client(backs[ind].as_str()).await?;
         let res = client.get(VALIDATION_BIT_KEY).await;
         if res.is_err() {
-            backs_status.push(false);
+            continue;
         } else {
-            backs_status.push(true);
+            backs_status[ind] = true;
             if res.unwrap().is_some() {
                 num_valid += 1;
             }

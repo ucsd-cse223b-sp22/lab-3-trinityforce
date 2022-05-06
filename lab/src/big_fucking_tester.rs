@@ -191,13 +191,13 @@ impl BigFuckingTesterTrait for BigFuckingTester {
             if self.keeper_shutdown_send_chan[i].is_none() {
                 continue;
             }
-            self.keeper_node_leave(i);
+            self.keeper_node_leave(i).await;
         }
         for i in 0..self.back_shutdown_send_chan.len() {
             if self.back_shutdown_send_chan[i].is_none() {
                 continue;
             }
-            self.back_node_leave(i);
+            self.back_node_leave(i).await;
         }
     }
 }
