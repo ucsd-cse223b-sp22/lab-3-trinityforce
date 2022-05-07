@@ -116,7 +116,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
         // gonna cover the gap if my next keepers are down
         // scan for next available keeper
         let mut smallest_keeper_alive = self.this;
-        println!("{}, begin broadcasting", self.this);
+        //println!("{}, begin broadcasting", self.this);
         for i in 0..self.keepers.len() {
             if i == self.this {
                 continue;
@@ -184,6 +184,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
 
         // if the keeper is in its first round, fetch back status and migration log
         if !self.activated {
+            println!("Keeper {} is promoted", self.this);
             node_join_migration_index = None;
             node_leave_migration_index = None;
             let back_status_str = bin_client.get(BACK_STATUS_STORE_KEY).await?;
@@ -195,6 +196,8 @@ impl KeeperMigratorTrait for KeeperMigrator {
                         value: serde_json::to_string(&back_status_copy)?,
                     })
                     .await?;
+                self.activated = true;
+                println!("Get null back status");
             }
             if migration_log_str.is_none() {
                 if !back_status_str.is_none() {
@@ -233,7 +236,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
             // append migration log
             bin_client
                 .set(&KeyValue {
-                    key: BACK_STATUS_STORE_KEY.to_string(),
+                    key: MIGRATION_LOG_KEY.to_string(),
                     value: log_str.clone(),
                 })
                 .await?;
@@ -244,6 +247,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
                     value: serde_json::to_string(&back_status_copy)?,
                 })
                 .await?;
+            println!("Start migrate_to_joined_node");
             keeper_helper::migrate_to_joined_node(
                 self.backs.clone(),
                 self.channel_cache.clone(),
@@ -251,9 +255,10 @@ impl KeeperMigratorTrait for KeeperMigrator {
                 back_status_copy,
             )
             .await?;
+            println!("End migrate_to_joined_node");
             bin_client
                 .set(&KeyValue {
-                    key: BACK_STATUS_STORE_KEY.to_string(),
+                    key: MIGRATION_LOG_KEY.to_string(),
                     value: "".to_string(),
                 })
                 .await?;
@@ -280,6 +285,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
                     value: serde_json::to_string(&back_status_copy)?,
                 })
                 .await?;
+            println!("Start migrate_to_left_node");
             keeper_helper::migrate_to_left_node(
                 self.backs.clone(),
                 self.channel_cache.clone(),
@@ -287,12 +293,17 @@ impl KeeperMigratorTrait for KeeperMigrator {
                 back_status_copy,
             )
             .await?;
-            bin_client
+            println!("End migrate_to_left_node");
+            let res = bin_client
                 .set(&KeyValue {
                     key: BACK_STATUS_STORE_KEY.to_string(),
                     value: "".to_string(),
                 })
-                .await?;
+                .await;
+            if res.is_err() {
+                println!("Send back status error");
+                println!("{:?}", res);
+            }
             return Ok(());
         }
         // only update back status if the keeper is in its first round or view change happens
