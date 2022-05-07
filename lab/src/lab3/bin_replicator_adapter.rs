@@ -542,10 +542,12 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
             let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
             let vec_primary = primary_bin_prefix_adapter.list_keys(p).await;
             if !vec_primary.is_err() {
+                println!("Keys from primary");
                 return Ok(vec_primary.unwrap().0);
             }
             let vec_secondary = secondary_bin_prefix_adapter.list_keys(p).await;
             if !vec_secondary.is_err() {
+                println!("Keys from secondary");
                 return Ok(vec_secondary.unwrap().0);
             }
             return Ok(vec![] as Vec<String>);
@@ -553,6 +555,7 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
             let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
             let vec_primary = primary_bin_prefix_adapter.list_keys(p).await;
             if !vec_primary.is_err() {
+                println!("Keys from primary");
                 return Ok(vec_primary.unwrap().0);
             }
             return Ok(vec![] as Vec<String>);
@@ -560,6 +563,7 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
             let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
             let vec_secondary = secondary_bin_prefix_adapter.list_keys(p).await;
             if !vec_secondary.is_err() {
+                println!("Keys from secondary");
                 return Ok(vec_secondary.unwrap().0);
             }
             return Ok(vec![] as Vec<String>);
