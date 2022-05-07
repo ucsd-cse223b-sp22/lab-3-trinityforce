@@ -296,7 +296,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
             println!("End migrate_to_left_node");
             let res = bin_client
                 .set(&KeyValue {
-                    key: BACK_STATUS_STORE_KEY.to_string(),
+                    key: MIGRATION_LOG_KEY.to_string(),
                     value: "".to_string(),
                 })
                 .await;
