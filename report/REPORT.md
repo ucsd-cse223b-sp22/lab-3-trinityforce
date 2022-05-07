@@ -1,0 +1,22 @@
+# Report of Lab3
+## Frontend & Backends
+The frontends and backends logic stay the same.
+## Bin Client
+#### Fault tolerance read/write model
+To handle the fault tolerance, we adopted the idea from Chord as our design foundation. Each time we fetch a key, we calculated the hash of the key mod the number of total backends. Then we choose that point as our starting point and perform a sequential scan on the backend status to find the first two living nodes (find key space successor and its sucessor's sucessor) to achieve fault tolerance. For the backend status, we store the backend status as a boolean array by periodically pinging the backends and caching it in our bin client. For the fault tolerance, whenever we perform an write operation like set or remove or append, we write to two replicas. In terms of node leaving, the chord algorithm will skip the left node and find the next backup node with replicated backup data. To avoid reading from a node that just joins and has empty data storage, we use the concept of **VALIDATION BIT**. Basically, if a node is a newly joined node, our keeper will migrate the corresponding key space to the node to make sure that the node contains up-to-date data. 
+#### Replicated read/write 
+We add one more indirection layer called Bin Replicator Adapter between the lab2 layers: Bin Storage Client (which provides bin interface) and Bin Prefix Adapter (which virtually separates bins in one physical backend). The replicator adapter is responsible for replicating data to a backup storage whenever it writes to backend. For read logic, we read from the fist living replica which has **VALIDATION BIT**. For write logic, we write to two subsequent living replicas with indices starting from hash(key) % number of backends.
+#### Consistency read/write model
+We implement everything in a log, and we replay the log to retrieve the current state. To reach a total ordering between two different replicas, we want to use a unique comparable identifier in each log to just like ABCast. So we choose logical clock value from our primary replica and push that log entry to both primary replica and secondary replica. We read, sort the logs by logical clock id, and replay the log the create the current state.
+#### Optimizations
+We cache the connections in a hashmap mapping from backend address to tonic channel.
+## Keepers
+Compared to single keeper, multiple keepers elavate the following features:
+- Keepers periodically perform the broadcast to the peer nodes to check the membership
+- Keeper with the smallest index periodically perform backend servers status check and perform migration correspondingly in case of any changes in backend status detected (backend server join or leave)
+- Keeper with largest index periodically perform logical clock broadcast if it has the largest index.
+
+#### Keeper Migration
+Our keeper uses chord algorithm to calculate the key space that's needed to migrate. In terms of a node leaving, our keeper will take care of this part of logic by migrating the node's key space to subsequent two nodes. The left node N contained two parts of key spaces that needed to be migrated. The first part is the N's predessor's secondary replica key space. The second part is the N's primary replica key space. We move them to the subsequent corresponding nodes to make sure that after the migration is finished, we still have two replicas of data everywhere.
+#### Keeper join and failure model
+In order to detect node join or leave status, we need to let the keeper which is responsible for migration to perform peridioc scan on the backend status. However, if the keeper dies before it tries to perform migration, then no keepers can detect such change in backend status again. So basically, the keeper that's responsible for the migration will write the backend status it scans to a static bin in backend. Since backend is fault tolerant, we don't have to worry about losing the status and the next keeper responsible for the migration can retrieve the scan result from the fault tolerant backend. Before migration, the keeper also writes migration log to the backend indicating the target node index and leave/join bit so that, once the keeper dies before migration is completed, the next keeper responsible for the migration can wrap up unfinished migration for the previous one. Note that it does not hurt to do duplicate migration as appending logs with unique id is an idempotent operation.
