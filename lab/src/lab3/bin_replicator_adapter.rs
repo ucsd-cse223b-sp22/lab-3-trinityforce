@@ -851,7 +851,7 @@ impl storage::KeyList for BinReplicatorAdapter {
         let wrapped_prefx = format!("{}{}", LIST_LOG_PREFIX, p.prefix);
 
         // Get ther first alive and valid bin.
-        let adapter_option = self.get_read_replicas_access().await;
+        /*let adapter_option = self.get_read_replicas_access().await;
         if adapter_option.is_none() {
             return Err(Box::new(NotEnoughServers));
         }
@@ -864,14 +864,33 @@ impl storage::KeyList for BinReplicatorAdapter {
                 suffix: p.suffix.to_string(),
             })
             .await?
-            .0;
+            .0;*/
+        let (primary_adapter_option, secondary_adapter_option) =
+            self.get_read_replicas_access_new().await;
+        if primary_adapter_option.is_none() && secondary_adapter_option.is_none() {
+            return Err(Box::new(NotEnoughServers));
+        }
+
+        let potential_keys = self
+            .keys_action(
+                &primary_adapter_option,
+                &secondary_adapter_option,
+                &storage::Pattern {
+                    prefix: wrapped_prefx.to_string(),
+                    suffix: p.suffix.to_string(),
+                },
+            )
+            .await?;
 
         println!("Potential keys: {:?}", potential_keys);
 
         let mut true_keys = vec![];
         for key in potential_keys {
+            /*let logs_struct = self
+            .get_sorted_log_struct(&bin_prefix_adapter, &key)
+            .await?;*/
             let logs_struct = self
-                .get_sorted_log_struct(&bin_prefix_adapter, &key)
+                .get_sorted_log_struct_new(&primary_adapter_option, &secondary_adapter_option, &key)
                 .await?;
 
             // Replay the whole log.
