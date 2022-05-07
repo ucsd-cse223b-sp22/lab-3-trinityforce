@@ -274,7 +274,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
             // append migration log
             bin_client
                 .set(&KeyValue {
-                    key: BACK_STATUS_STORE_KEY.to_string(),
+                    key: MIGRATION_LOG_KEY.to_string(),
                     value: log_str.clone(),
                 })
                 .await?;
