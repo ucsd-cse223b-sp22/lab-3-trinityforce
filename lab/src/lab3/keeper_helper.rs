@@ -199,6 +199,7 @@ pub async fn migrate_to_left_node(
     let mut index = left_node_index + 1;
     let mut first_predecessor: usize = 0;
     let mut second_predecessor: usize = 0;
+    //println!("Get back statsu: {:?}", back_status);
     // find the first and second successor
     while index <= left_node_index + backs_len {
         // if cannot find succesor, which means it is the last node in system, crash
@@ -207,6 +208,7 @@ pub async fn migrate_to_left_node(
         }
         if back_status[index % backs_len] {
             successor = index % backs_len;
+            //println!("Find first successor {}", successor);
             index = index + 1;
             while index <= left_node_index + backs_len {
                 // if cannot find second successor, which means there is only one successor left
@@ -215,8 +217,10 @@ pub async fn migrate_to_left_node(
                 }
                 if back_status[index % backs_len] {
                     second_successor = index % backs_len;
+                    //println!("Find first successor {}", second_successor);
                     break;
                 }
+                index = index + 1;
             }
             break;
         }
@@ -231,11 +235,13 @@ pub async fn migrate_to_left_node(
         }
         if back_status[index % backs_len] {
             first_predecessor = index % backs_len;
+            //println!("Find first predecessor {}", first_predecessor);
             index = index - 1;
             // find the second predecessor
             while index >= successor {
                 if back_status[index % backs_len] {
                     second_predecessor = index % backs_len;
+                    //println!("Find second predecessor {}", second_predecessor);
                     break;
                 }
                 index = index - 1;
@@ -247,6 +253,10 @@ pub async fn migrate_to_left_node(
     // exclude start itself
     interval_start = (second_predecessor + 1) % backs_len;
     interval_end = first_predecessor;
+    /*println!(
+        "Migrate first from node {} to node {}, the data range from index {} to {}",
+        first_predecessor, successor, interval_start, interval_end
+    );*/
     let migrate_first = tokio::spawn(migrate_data(
         backs.clone(),
         channel_cache.clone(),
@@ -257,6 +267,10 @@ pub async fn migrate_to_left_node(
     ));
     interval_start = (first_predecessor + 1) % backs_len;
     interval_end = left_node_index;
+    /*println!(
+        "Migrate second from node {} to node {}, the data range from index {} to {}",
+        successor, second_successor, interval_start, interval_end
+    );*/
     let migrate_second = tokio::spawn(migrate_data(
         backs,
         channel_cache,
