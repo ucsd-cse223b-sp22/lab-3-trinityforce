@@ -1,3 +1,4 @@
+use super::lab1;
 use super::lab2;
 use super::lab3;
 use rand::Rng;
@@ -22,11 +23,11 @@ use tribbler::{
 };
 
 fn spawn_back(cfg: BackConfig) -> tokio::task::JoinHandle<TribResult<()>> {
-    tokio::spawn(lab3::serve_back(cfg))
+    tokio::spawn(lab1::serve_back(cfg))
 }
 
 fn spawn_keep(kfg: KeeperConfig) -> tokio::task::JoinHandle<TribResult<()>> {
-    tokio::spawn(lab3::serve_keeper(kfg))
+    tokio::spawn(lab2::serve_keeper(kfg))
 }
 
 async fn setup(
