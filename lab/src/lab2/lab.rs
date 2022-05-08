@@ -1,11 +1,13 @@
 use tribbler::{config::KeeperConfig, err::TribResult, storage::BinStorage, trib::Server};
 
+use crate::lab3;
+
 /// This function accepts a list of backend addresses, and returns a
 /// type which should implement the [BinStorage] trait to access the
 /// underlying storage system.
 #[allow(unused_variables)]
 pub async fn new_bin_client(backs: Vec<String>) -> TribResult<Box<dyn BinStorage>> {
-    todo!()
+    lab3::new_bin_client(backs).await
 }
 
 /// this async function accepts a [KeeperConfig] that should be used to start
@@ -16,7 +18,7 @@ pub async fn new_bin_client(backs: Vec<String>) -> TribResult<Box<dyn BinStorage
 /// started.
 #[allow(unused_variables)]
 pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
-    todo!()
+    lab3::serve_keeper(kc).await
 }
 
 /// this function accepts a [BinStorage] client which should be used in order to
@@ -32,5 +34,5 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
 pub async fn new_front(
     bin_storage: Box<dyn BinStorage>,
 ) -> TribResult<Box<dyn Server + Send + Sync>> {
-    todo!()
+    lab3::new_front(bin_storage).await
 }

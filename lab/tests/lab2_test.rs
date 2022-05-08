@@ -7,7 +7,7 @@ use std::{
     time::Duration, collections::{HashMap, HashSet}, cmp, vec,
 };
 use rand::Rng;
-use lab::{self, lab3};
+use lab::{self, lab2, lab1};
 use tokio::{sync::mpsc::Sender as MpscSender};
 use tribbler::{config::KeeperConfig};
 #[allow(unused_imports)]
@@ -19,11 +19,11 @@ use tribbler::{
 };
 
 fn spawn_back(cfg: BackConfig) -> tokio::task::JoinHandle<TribResult<()>> {
-    tokio::spawn(lab3::serve_back(cfg))
+    tokio::spawn(lab1::serve_back(cfg))
 }
 
 fn spawn_keep(kfg: KeeperConfig) -> tokio::task::JoinHandle<TribResult<()>> {
-    tokio::spawn(lab3::serve_keeper(kfg))
+    tokio::spawn(lab2::serve_keeper(kfg))
 }
 
 fn generate_random_username(len: usize) -> String {
@@ -109,8 +109,8 @@ async fn test_simple_follow() -> TribResult<()> {
         "127.0.0.1:33955".to_string(),
     ];
     let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone().clone()).await?;
-    let bc = lab3::new_bin_client(backs.clone()).await?;
-    let frontend = lab3::new_front(bc).await?;
+    let bc = lab2::new_bin_client(backs.clone()).await?;
+    let frontend = lab2::new_front(bc).await?;
 
     let crazy_fan_johnny_su = "johnnysu";
     let speechless_professor = "alexsnoeren";
@@ -142,8 +142,8 @@ async fn test_duplicate_follow() -> TribResult<()> {
         "127.0.0.1:33006".to_string()
     ];
     let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
-    let bc = lab3::new_bin_client(backs.clone()).await?;
-    let frontend = lab3::new_front(bc).await?;
+    let bc = lab2::new_bin_client(backs.clone()).await?;
+    let frontend = lab2::new_front(bc).await?;
 
     let crazy_fan_johnny_su = "johnnysu";
     let speechless_professor = "alexsnoeren";
@@ -177,8 +177,8 @@ async fn test_duplicate_unfollow() -> TribResult<()> {
         "127.0.0.1:33016".to_string()
     ];
     let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
-    let bc = lab3::new_bin_client(backs.clone()).await?;
-    let frontend = lab3::new_front(bc).await?;
+    let bc = lab2::new_bin_client(backs.clone()).await?;
+    let frontend = lab2::new_front(bc).await?;
 
     let crazy_fan_johnny_su = "johnnysu";
     let speechless_professor = "alexsnoeren";
@@ -221,8 +221,8 @@ async fn test_concurrent_follow() -> TribResult<()> {
         "127.0.0.1:33026".to_string()
     ];
     let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
-    let bc = lab3::new_bin_client(backs.clone()).await?;
-    let frontend0 = lab3::new_front(bc).await?;
+    let bc = lab2::new_bin_client(backs.clone()).await?;
+    let frontend0 = lab2::new_front(bc).await?;
 
     let crazy_fan_johnny_su = "johnnysu";
     let speechless_professor = "alexsnoeren";
@@ -245,8 +245,8 @@ async fn test_concurrent_follow() -> TribResult<()> {
     // }
 
     for i in 0..NUM_CONCURRENCY {
-        let bc = lab3::new_bin_client(backs.clone()).await?;
-        let frontend = lab3::new_front(bc).await?;
+        let bc = lab2::new_bin_client(backs.clone()).await?;
+        let frontend = lab2::new_front(bc).await?;
         promises.push(tokio::task::spawn(async move { frontend.follow(crazy_fan_johnny_su, speechless_professor).await }));
     }
 
@@ -257,7 +257,7 @@ async fn test_concurrent_follow() -> TribResult<()> {
         }
     }
 
-    let bc = lab3::new_bin_client(backs.clone()).await?;
+    let bc = lab2::new_bin_client(backs.clone()).await?;
     let client_future_who = bc.bin(crazy_fan_johnny_su);
     let client_who = client_future_who.await?;
     let follow_log_key = format!("{}::{}", crazy_fan_johnny_su, "FOLLOWLOG");
@@ -292,7 +292,7 @@ async fn test_bins_diff_keys_massive_set_get() -> TribResult<()> {
         "127.0.0.1:33036".to_string()
     ];
     let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
-    let bin_client = lab3::new_bin_client(backs.clone()).await?;
+    let bin_client = lab2::new_bin_client(backs.clone()).await?;
     let STRING_LEN = 30;
     let NUM_KEYS = 777;
 
@@ -346,7 +346,7 @@ async fn test_bins_same_key_massive_set_get() -> TribResult<()> {
         "127.0.0.1:33046".to_string()
     ];
     let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
-    let bin_client = lab3::new_bin_client(backs.clone()).await?;
+    let bin_client = lab2::new_bin_client(backs.clone()).await?;
     let STRING_LEN = 30;
 
     let KEY = "jerkoff";
@@ -393,8 +393,8 @@ async fn test_signup_users() -> TribResult<()> {
         "127.0.0.1:33056".to_string()
     ];
     let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
-    let bc = lab3::new_bin_client(backs.clone()).await?;
-    let frontend = lab3::new_front(bc).await?;
+    let bc = lab2::new_bin_client(backs.clone()).await?;
+    let frontend = lab2::new_front(bc).await?;
 
     let mut hashset = HashSet::new();
     let first_guy = generate_random_username(7);
@@ -452,8 +452,8 @@ async fn test_signup_users_less_than_20() -> TribResult<()> {
         "127.0.0.1:33066".to_string()
     ];
     let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
-    let bc = lab3::new_bin_client(backs.clone()).await?;
-    let frontend = lab3::new_front(bc).await?;
+    let bc = lab2::new_bin_client(backs.clone()).await?;
+    let frontend = lab2::new_front(bc).await?;
 
     let mut hashset = HashSet::new();
     let NUMBER = 15;
@@ -503,8 +503,8 @@ async fn test_simple_tribs_1_and_3() -> TribResult<()> {
         "127.0.0.1:33076".to_string()
     ];
     let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
-    let bc = lab3::new_bin_client(backs.clone()).await?;
-    let frontend = lab3::new_front(bc).await?;
+    let bc = lab2::new_bin_client(backs.clone()).await?;
+    let frontend = lab2::new_front(bc).await?;
 
     let crazy_fan_johnny_su = "johnnysu";
     let speechless_professor = "alexsnoeren";
@@ -554,8 +554,8 @@ async fn test_simple_tribs_2() -> TribResult<()> {
         "127.0.0.1:33086".to_string()
     ];
     let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
-    let bc = lab3::new_bin_client(backs.clone()).await?;
-    let frontend = lab3::new_front(bc).await?;
+    let bc = lab2::new_bin_client(backs.clone()).await?;
+    let frontend = lab2::new_front(bc).await?;
 
     let crazy_fan_johnny_su = "johnnysu";
     let speechless_professor = "alexsnoeren";
@@ -610,8 +610,8 @@ async fn test_home_correctness() -> TribResult<()> {
         "127.0.0.1:33096".to_string()
     ];
     let (tx1, tx2, tx3, tx4, tx5, tx6) = setup(backs.clone(), keeper_addr.clone()).await?;
-    let bc = lab3::new_bin_client(backs.clone()).await?;
-    let frontend = lab3::new_front(bc).await?;
+    let bc = lab2::new_bin_client(backs.clone()).await?;
+    let frontend = lab2::new_front(bc).await?;
 
     frontend.sign_up("u1").await?;
     frontend.sign_up("u2").await?;
