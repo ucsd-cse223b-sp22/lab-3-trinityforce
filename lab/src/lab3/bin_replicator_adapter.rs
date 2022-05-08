@@ -257,7 +257,7 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
                     ));
                 }
             } else {
-                println!("Channel get failed!");
+                // println!("Channel get failed!");
             }
 
             // start scanning the secondary replica
@@ -289,7 +289,7 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
                         ));
                     }
                 } else {
-                    println!("Channel get failed!");
+                    // println!("Channel get failed!");
                 }
                 break;
             }
@@ -310,7 +310,7 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
             let chan_res =
                 update_channel_cache(self.channel_cache.clone(), backend_addr.clone()).await;
             if chan_res.is_err() {
-                println!("Channel get failed!");
+                // println!("Channel get failed!");
                 continue;
             }
             let pinger = StorageClient::new(backend_addr, Some(chan_res.unwrap()));
@@ -363,7 +363,7 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
                     ));
                 }
             } else {
-                println!("Channel get failed!");
+                // println!("Channel get failed!");
             }
 
             // start scanning the secondary replica
@@ -395,7 +395,7 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
                         ));
                     }
                 } else {
-                    println!("Channel get failed!");
+                    // println!("Channel get failed!");
                 }
                 break;
             }
@@ -631,7 +631,7 @@ impl storage::KeyList for BinReplicatorAdapter {
             } else if element.action == REMOVE_ACTION {
                 replay_set.insert(&element.wrapped_string);
             } else {
-                println!("The operation is not supported!!!"); // Sanity check for action.
+                // println!("The operation is not supported!!!"); // Sanity check for action.
             }
         }
         logs_result.reverse();
@@ -714,7 +714,7 @@ impl storage::KeyList for BinReplicatorAdapter {
             } else if element.action == REMOVE_ACTION {
                 break;
             } else {
-                println!("The operation is not supported!!!"); // Sanity check for action.
+                // println!("The operation is not supported!!!"); // Sanity check for action.
             }
         }
 
@@ -764,7 +764,7 @@ impl storage::KeyList for BinReplicatorAdapter {
                 } else if element.action == REMOVE_ACTION {
                     replay_set.insert(&element.wrapped_string);
                 } else {
-                    println!("The operation is not supported!!!"); // Sanity check for action.
+                    // println!("The operation is not supported!!!"); // Sanity check for action.
                 }
             }
         }
@@ -802,7 +802,7 @@ impl storage::Storage for BinReplicatorAdapter {
             )
             .await;
             if primary_chan_res.is_err() {
-                println!("Should not happen!")
+                // println!("Should not happen!")
             }
             let primary_pinger = StorageClient::new(
                 &primary_bin_prefix_adapter.addr,

@@ -73,7 +73,7 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
                 continue;
             }
             let client = StorageClient::new(backs[ind].as_str(), Some(chan_res.unwrap().clone()));
-            println!("Keeper {} send validation to Back {}", kc.this, ind);
+            // println!("Keeper {} send validation to Back {}", kc.this, ind);
             let _ = client
                 .set(&storage::KeyValue {
                     key: VALIDATION_BIT_KEY.to_string(),
@@ -173,7 +173,7 @@ pub async fn serve_keeper(kc: KeeperConfig) -> TribResult<()> {
         }
     }
 
-    println!("Keeper {} shutting down", kc.this);
+    // println!("Keeper {} shutting down", kc.this);
     Ok(())
 }
 
@@ -237,7 +237,7 @@ pub async fn serve_back(config: BackConfig) -> TribResult<()> {
             if server_status.is_err() {}
         }
     }
-    println!("Backend {} shutting down", config.addr);
+    // println!("Backend {} shutting down", config.addr);
     Ok(())
 }
 

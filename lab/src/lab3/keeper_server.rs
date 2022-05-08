@@ -124,16 +124,16 @@ impl KeeperMigratorTrait for KeeperMigrator {
             let chan_res =
                 update_channel_cache(self.channel_cache.clone(), self.keepers[i].clone()).await;
             if chan_res.is_err() {
-                println!("ping channel failed: from {}, to {}", self.this, i);
+                // println!("ping channel failed: from {}, to {}", self.this, i);
                 continue;
             }
             let mut client = KeeperServiceClient::new(chan_res.unwrap().clone());
             let resp_res = client.ping(keeper::Heartbeat { value: true }).await;
             if resp_res.is_err() {
-                println!("ping failed: from {}, to {}", self.this, i);
+                // println!("ping failed: from {}, to {}", self.this, i);
                 continue;
             }
-            println!("ping success: from {}, to {}", self.this, i);
+            // println!("ping success: from {}, to {}", self.this, i);
             smallest_keeper_alive = cmp::min(smallest_keeper_alive, i);
         }
         if smallest_keeper_alive != self.this {
@@ -184,7 +184,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
 
         // if the keeper is in its first round, fetch back status and migration log
         if !self.activated {
-            println!("Keeper {} is promoted", self.this);
+            // println!("Keeper {} is promoted", self.this);
             node_join_migration_index = None;
             node_leave_migration_index = None;
             let back_status_str = bin_client.get(BACK_STATUS_STORE_KEY).await?;
@@ -197,7 +197,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
                     })
                     .await?;
                 self.activated = true;
-                println!("Get null back status");
+                // println!("Get null back status");
             }
             if migration_log_str.is_none() {
                 if !back_status_str.is_none() {
@@ -255,7 +255,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
                 back_status_copy,
             )
             .await?;
-            println!("End migrate_to_joined_node");
+            // println!("End migrate_to_joined_node");
             bin_client
                 .set(&KeyValue {
                     key: MIGRATION_LOG_KEY.to_string(),
@@ -285,7 +285,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
                     value: serde_json::to_string(&back_status_copy)?,
                 })
                 .await?;
-            println!("Start migrate_to_left_node");
+            // println!("Start migrate_to_left_node");
             keeper_helper::migrate_to_left_node(
                 self.backs.clone(),
                 self.channel_cache.clone(),
@@ -293,7 +293,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
                 back_status_copy,
             )
             .await?;
-            println!("End migrate_to_left_node");
+            // println!("End migrate_to_left_node");
             let res = bin_client
                 .set(&KeyValue {
                     key: MIGRATION_LOG_KEY.to_string(),
@@ -301,8 +301,8 @@ impl KeeperMigratorTrait for KeeperMigrator {
                 })
                 .await;
             if res.is_err() {
-                println!("Send back status error");
-                println!("{:?}", res);
+                // println!("Send back status error");
+                // println!("{:?}", res);
             }
             return Ok(());
         }

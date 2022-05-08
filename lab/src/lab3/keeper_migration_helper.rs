@@ -54,7 +54,7 @@ impl KeeperMigrationHelper for KeeperMigrator {
             })
             .await?
             .0;
-        println!("get all keys in {}: {:?}", addr, keys_list);
+        // println!("get all keys in {}: {:?}", addr, keys_list);
         let mut filtered = vec![];
         for element in keys_list {
             let splits = &element.split("::").collect::<Vec<&str>>();
@@ -107,10 +107,10 @@ impl KeeperMigrationHelper for KeeperMigrator {
         interval_start: usize,
         interval_end: usize,
     ) -> TribResult<()> {
-        println!(
-            "migration: from {}, to {}, interval start {}, interval end {}",
-            from, to, interval_start, interval_end
-        );
+        // println!(
+        //     "migration: from {}, to {}, interval start {}, interval end {}",
+        //     from, to, interval_start, interval_end
+        // );
         let addr_from = &self.backs[from];
         let addr_to = &self.backs[to];
         let chan_from =
@@ -121,7 +121,7 @@ impl KeeperMigrationHelper for KeeperMigrator {
         let raw_key_list = self.extract_raw_keys_from_addr(addr_from).await?;
         for element in raw_key_list.iter() {
             let bin_name = self.extract_bin_name_from_raw_key(element);
-            println!("bin name: {}, element: {}", &bin_name, &element);
+            // println!("bin name: {}, element: {}", &bin_name, &element);
             if bin_name == "" {
                 continue;
             }
@@ -146,13 +146,13 @@ impl KeeperMigrationHelper for KeeperMigrator {
                         value: s.to_string(),
                     })
                     .await?;
-                println!(
-                    "{} start appending to {}---key: {}, value: {}",
-                    addr_from.to_string(),
-                    addr_to.to_string(),
-                    element.to_string(),
-                    s.to_string()
-                );
+                // println!(
+                //     "{} start appending to {}---key: {}, value: {}",
+                //     addr_from.to_string(),
+                //     addr_to.to_string(),
+                //     element.to_string(),
+                //     s.to_string()
+                // );
             }
         }
         client_to
