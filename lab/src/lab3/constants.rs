@@ -9,5 +9,5 @@ pub const REMOVE_ACTION: &str = "REMOVE";
 pub const KEEPER_STORE_NAME: &str = "KEEPER-STORE";
 pub const BACK_STATUS_STORE_KEY: &str = "BACK-STATUS";
 pub const MIGRATION_LOG_KEY: &str = "MIGRATION-LOG";
-pub const MIGRATION_INTERVAL: u64 = 10;
+pub const MIGRATION_INTERVAL: u64 = 7;
 pub const BRAODCAST_CLOCK_INTERVAL: u64 = 2;
