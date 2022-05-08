@@ -65,10 +65,9 @@ impl storage::KeyString for BinPrefixAdapter {
         for element in resp_list {
             let element_str = element.as_str();
             let extracted_key = &element_str[self.bin.len() + 2..element.len()];
-            if !extracted_key.ends_with(&p.suffix) {
-                continue;
+            if extracted_key.ends_with(&p.suffix) {
+                ret_val.push(extracted_key.to_string());
             }
-            ret_val.push(extracted_key.to_string());
         }
         return Ok(storage::List(ret_val));
     }
@@ -122,10 +121,9 @@ impl storage::KeyList for BinPrefixAdapter {
         for element in resp_list {
             let element_str = element.as_str();
             let extracted_key = &element_str[self.bin.len() + 2..];
-            if !extracted_key.ends_with(&p.suffix) {
-                continue;
+            if extracted_key.ends_with(&p.suffix) {
+                ret_val.push(extracted_key.to_string());
             }
-            ret_val.push(extracted_key.to_string());
         }
         return Ok(storage::List(ret_val));
     }

@@ -67,11 +67,6 @@ impl storage::KeyString for BinReplicatorAdapter {
         let wrapped_key = format!("{}{}", STR_LOG_PREFIX, key);
 
         // Get ther first alive and valid bin.
-        /*let adapter_option = self.get_read_replicas_access().await;
-        if adapter_option.is_none() {
-            return Err(Box::new(NotEnoughServers));
-        }
-        let bin_prefix_adapter = adapter_option.unwrap();*/
         let (primary_adapter_option, secondary_adapter_option) =
             self.get_read_replicas_access_new().await;
         if primary_adapter_option.is_none() && secondary_adapter_option.is_none() {
@@ -86,7 +81,7 @@ impl storage::KeyString for BinReplicatorAdapter {
                 &wrapped_key,
             )
             .await?;
-        //let logs_string = bin_prefix_adapter.list_get(&wrapped_key).await?.0;
+
         let mut logs_struct = vec![];
         for element in logs_string {
             let log_entry: SortableLogRecord = serde_json::from_str(&element).unwrap();
@@ -136,27 +131,11 @@ impl storage::KeyString for BinReplicatorAdapter {
     async fn keys(&self, p: &storage::Pattern) -> TribResult<storage::List> {
         let wrapped_prefx = format!("{}{}", STR_LOG_PREFIX, p.prefix);
 
-        // Get the first alive and valid bin.
-        /*let adapter_option = self.get_read_replicas_access().await;
-        if adapter_option.is_none() {
-            return Err(Box::new(NotEnoughServers));
-        }*/
-
         let (primary_adapter_option, secondary_adapter_option) =
             self.get_read_replicas_access_new().await;
         if primary_adapter_option.is_none() && secondary_adapter_option.is_none() {
             return Err(Box::new(NotEnoughServers));
         }
-
-        /*let bin_prefix_adapter = adapter_option.unwrap();
-
-        let potential_keys = bin_prefix_adapter
-            .list_keys(&storage::Pattern {
-                prefix: wrapped_prefx.to_string(),
-                suffix: p.suffix.to_string(),
-            })
-            .await?
-            .0;*/
 
         let potential_keys = self
             .keys_action(
@@ -168,8 +147,6 @@ impl storage::KeyString for BinReplicatorAdapter {
                 },
             )
             .await?;
-
-        println!("Potential keys: {:?}", potential_keys);
 
         let mut true_keys = vec![];
         for key in potential_keys {
@@ -194,7 +171,9 @@ impl storage::KeyString for BinReplicatorAdapter {
             }
             if result_str != "" {
                 let extracted_key = &key[STR_LOG_PREFIX.len()..];
-                true_keys.push(extracted_key.to_string())
+                if extracted_key.ends_with(&p.suffix) {
+                    true_keys.push(extracted_key.to_string());
+                }
             }
         }
         true_keys.sort_unstable();
@@ -254,8 +233,6 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
         let end = start + backs.len();
         let mut primary_adapter_option = None;
         let mut secondary_adapter_option = None;
-        // println!("start {}, end {}", start, end);
-        // println!("back_status: {:?};", self.back_status);
         for i in start..end {
             // start scanning the primary replica
             let primary_backend_index = i % backs.len();
@@ -362,8 +339,6 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
         let end = start + backs.len();
         let mut primary_adapter_option = None;
         let mut secondary_adapter_option = None;
-        println!("start {}, end {}", start, end);
-        println!("back_status: {:?};", self.back_status);
         for i in start..end {
             // start scanning the primary replica
             let primary_backend_index = i % backs.len();
@@ -379,13 +354,8 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
                     StorageClient::new(primary_backend_addr, Some(primary_chan_res.unwrap()));
                 let primary_resp = primary_pinger.get("DUMMY").await;
                 if primary_resp.is_err() {
-                    println!(
-                        "primary addr: {}; primary_resp: none",
-                        primary_backend_index
-                    );
                     primary_adapter_option = None;
                 } else {
-                    println!("primary addr: {}; primary_resp: OK", primary_backend_index);
                     primary_adapter_option = Some(BinPrefixAdapter::new(
                         &primary_backend_addr,
                         &self.bin.to_string(),
@@ -417,20 +387,12 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
                     let secondary_resp = secondary_pinger.get("DUMMY").await;
                     if secondary_resp.is_err() {
                         secondary_adapter_option = None;
-                        println!(
-                            "secondary addr: {}; secondary_resp: None",
-                            secondary_backend_index
-                        );
                     } else {
                         secondary_adapter_option = Some(BinPrefixAdapter::new(
                             &secondary_backend_addr,
                             &self.bin.to_string(),
                             self.channel_cache.clone(),
                         ));
-                        println!(
-                            "secondary addr: {}; secondary_resp: OK",
-                            secondary_backend_index
-                        );
                     }
                 } else {
                     println!("Channel get failed!");
@@ -542,12 +504,10 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
             let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
             let vec_primary = primary_bin_prefix_adapter.list_keys(p).await;
             if !vec_primary.is_err() {
-                println!("Keys from primary");
                 return Ok(vec_primary.unwrap().0);
             }
             let vec_secondary = secondary_bin_prefix_adapter.list_keys(p).await;
             if !vec_secondary.is_err() {
-                println!("Keys from secondary");
                 return Ok(vec_secondary.unwrap().0);
             }
             return Ok(vec![] as Vec<String>);
@@ -555,7 +515,6 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
             let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
             let vec_primary = primary_bin_prefix_adapter.list_keys(p).await;
             if !vec_primary.is_err() {
-                println!("Keys from primary");
                 return Ok(vec_primary.unwrap().0);
             }
             return Ok(vec![] as Vec<String>);
@@ -563,7 +522,6 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
             let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
             let vec_secondary = secondary_bin_prefix_adapter.list_keys(p).await;
             if !vec_secondary.is_err() {
-                println!("Keys from secondary");
                 return Ok(vec_secondary.unwrap().0);
             }
             return Ok(vec![] as Vec<String>);
@@ -646,17 +604,6 @@ impl storage::KeyList for BinReplicatorAdapter {
     async fn list_get(&self, key: &str) -> TribResult<storage::List> {
         let wrapped_key = format!("{}{}", LIST_LOG_PREFIX, key);
 
-        // Get ther first alive and valid bin.
-        /*let adapter_option = self.get_read_replicas_access().await;
-        if adapter_option.is_none() {
-            return Err(Box::new(NotEnoughServers));
-        }
-        let bin_prefix_adapter = adapter_option.unwrap();
-
-        // Get all logs. Sort and dedup.
-        let logs_struct = self
-            .get_sorted_log_struct(&bin_prefix_adapter, &wrapped_key)
-            .await?;*/
         let (primary_adapter_option, secondary_adapter_option) =
             self.get_read_replicas_access_new().await;
         if primary_adapter_option.is_none() && secondary_adapter_option.is_none() {
@@ -754,18 +701,6 @@ impl storage::KeyList for BinReplicatorAdapter {
             )
             .await?;
 
-        /*let adapter_option = self.get_read_replicas_access().await;
-        if adapter_option.is_none() {
-            return Err(Box::new(NotEnoughServers));
-        }
-
-        let bin_prefix_adapter = adapter_option.unwrap();
-        let logs_struct = self
-            .get_sorted_log_struct(&bin_prefix_adapter, &wrapped_key)
-            .await?;*/
-        // println!("chosen_clock_id: {}", chosen_clock_id);
-        // println!("{:?}", logs_struct);
-
         let mut removal_num = 0;
         for element in logs_struct.iter().rev() {
             if element.clock_id >= chosen_clock_id {
@@ -786,85 +721,10 @@ impl storage::KeyList for BinReplicatorAdapter {
         return Ok(removal_num);
     }
 
-    /*async fn list_remove(&self, kv: &storage::KeyValue) -> TribResult<u32> {
-        let wrapped_key = format!("{}{}", LIST_LOG_PREFIX, kv.key);
-
-        // Get first two "valid" bins.
-        let (primary_adapter_option, secondary_adapter_option) =
-            self.get_write_replicas_access().await;
-        if primary_adapter_option.is_none() && secondary_adapter_option.is_none() {
-            return Err(Box::new(NotEnoughServers));
-        }
-
-        // Try to remove the entry in primary and secondary
-        let (primary_clock_id, secondary_clock_id) = self
-            .append_log_action(
-                &primary_adapter_option,
-                &secondary_adapter_option,
-                &wrapped_key,
-                kv,
-                REMOVE_ACTION,
-            )
-            .await?;
-
-        // Try to count the removal number. Assume removal number of primary is always greater or equal to that in secondary.
-        let mut logs_struct = vec![];
-        let mut chosen_clock_id = 0;
-
-        if primary_adapter_option.is_some() {
-            let primary_bin_prefix_adapter = primary_adapter_option.unwrap();
-            // Get all logs. Sort and dedup.
-            logs_struct = self
-                .get_sorted_log_struct(&primary_bin_prefix_adapter, &wrapped_key)
-                .await?;
-            chosen_clock_id = primary_clock_id;
-        } else {
-            let secondary_bin_prefix_adapter = secondary_adapter_option.unwrap();
-            // Get all logs. Sort and dedup.
-            logs_struct = self
-                .get_sorted_log_struct(&secondary_bin_prefix_adapter, &wrapped_key)
-                .await?;
-            chosen_clock_id = secondary_clock_id;
-        }
-
-        let mut removal_num = 0;
-        for element in logs_struct.iter().rev() {
-            if element.clock_id >= chosen_clock_id {
-                continue;
-            }
-            if element.wrapped_string != kv.value {
-                continue;
-            }
-            if element.action == APPEND_ACTION {
-                removal_num += 1;
-            } else if element.action == REMOVE_ACTION {
-                break;
-            } else {
-                println!("The operation is not supported!!!"); // Sanity check for action.
-            }
-        }
-
-        return Ok(removal_num);
-    }*/
-
     async fn list_keys(&self, p: &storage::Pattern) -> TribResult<storage::List> {
         let wrapped_prefx = format!("{}{}", LIST_LOG_PREFIX, p.prefix);
 
         // Get ther first alive and valid bin.
-        /*let adapter_option = self.get_read_replicas_access().await;
-        if adapter_option.is_none() {
-            return Err(Box::new(NotEnoughServers));
-        }
-
-        let bin_prefix_adapter = adapter_option.unwrap();
-
-        let potential_keys = bin_prefix_adapter
-            .list_keys(&storage::Pattern {
-                prefix: wrapped_prefx.to_string(),
-                suffix: p.suffix.to_string(),
-            })
-            .await?
-            .0;*/
         let (primary_adapter_option, secondary_adapter_option) =
             self.get_read_replicas_access_new().await;
         if primary_adapter_option.is_none() && secondary_adapter_option.is_none() {
@@ -882,13 +742,8 @@ impl storage::KeyList for BinReplicatorAdapter {
             )
             .await?;
 
-        println!("Potential keys: {:?}", potential_keys);
-
         let mut true_keys = vec![];
         for key in potential_keys {
-            /*let logs_struct = self
-            .get_sorted_log_struct(&bin_prefix_adapter, &key)
-            .await?;*/
             let logs_struct = self
                 .get_sorted_log_struct_new(&primary_adapter_option, &secondary_adapter_option, &key)
                 .await?;
@@ -902,7 +757,9 @@ impl storage::KeyList for BinReplicatorAdapter {
                 if element.action == APPEND_ACTION {
                     let key_str = key.as_str();
                     let extracted_key = &key_str[LIST_LOG_PREFIX.len()..];
-                    true_keys.push(extracted_key.to_string());
+                    if extracted_key.ends_with(&p.suffix) {
+                        true_keys.push(extracted_key.to_string());
+                    }
                     break;
                 } else if element.action == REMOVE_ACTION {
                     replay_set.insert(&element.wrapped_string);
