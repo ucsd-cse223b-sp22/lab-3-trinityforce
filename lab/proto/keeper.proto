@@ -5,3 +5,14 @@ syntax = "proto3";
 package keeper;
 
 // Add your message and service definitions below this line
+message Heartbeat {
+  bool value = 1;
+}
+
+message HeartbeatResponse {
+  bool value = 1;
+}
+
+service KeeperService {
+  rpc ping(Heartbeat) returns (HeartbeatResponse);
+}
