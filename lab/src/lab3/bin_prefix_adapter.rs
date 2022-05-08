@@ -64,6 +64,9 @@ impl storage::KeyString for BinPrefixAdapter {
         let mut ret_val = vec![];
         for element in resp_list {
             let element_str = element.as_str();
+            if !element_str.ends_with(&p.suffix) {
+                continue;
+            }
             let extracted_key = &element_str[self.bin.len() + 2..element.len()];
             ret_val.push(extracted_key.to_string());
         }
@@ -118,6 +121,9 @@ impl storage::KeyList for BinPrefixAdapter {
         let mut ret_val = vec![];
         for element in resp_list {
             let element_str = element.as_str();
+            if !element_str.ends_with(&p.suffix) {
+                continue;
+            }
             let extracted_key = &element_str[self.bin.len() + 2..];
             ret_val.push(extracted_key.to_string());
         }
