@@ -4,6 +4,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(true)
         .format(true)
         .out_dir("src")
-        .compile(&["proto/keeper.proto"], &["proto"])?;
+        .compile(&["proto/keeper.proto", "proto/lockserver.proto"], &["proto"])?;
     Ok(())
 }

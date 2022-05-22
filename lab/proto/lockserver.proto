@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package lockserver;
+
+service LockService {
+    rpc Acquire (AcquireLocksInfo) returns (Success) {}
+    rpc Release (ReleaseLocksInfo) returns (Success) {}
+}
+
+message AcquireLocksInfo {
+    string clientId = 1;
+    repeated string readKeys = 2;
+    repeated string writeKeys = 3;
+}
+
+message ReleaseLocksInfo {
+    string clientId = 1;
+    repeated string readKeys = 2;
+    repeated string writeKeys = 3;
+}
+
+message Success {
+    bool flag = 1;
+}
