@@ -245,7 +245,7 @@
 //!   made both the front-end and the back-end scalable.
 //! - [Lab 3](crate::lab3). We make the back-ends fault-tolerent with
 //!   replication and by using techniques like distributed hash tables. At the
-//!   end of this lab, back-end servers can join, leave, or be killed, without
+//!   end of this perServiceClientlab, back-end servers can join, leave, or be killed, without
 //!   affecting the service.
 //!
 //! By the end of the labs, you will have an implementation of Tribbler that is
@@ -285,3 +285,4 @@ mod keeper;
 pub mod lab1;
 pub mod lab2;
 pub mod lab3;
+mod lockserver;

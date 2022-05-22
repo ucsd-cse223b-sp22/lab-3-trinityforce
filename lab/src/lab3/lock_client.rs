@@ -1,3 +1,7 @@
+use crate::lockserver::AcquireLocksInfo;
+use crate::lockserver::ReleaseLocksInfo;
+
+use super::super::lockserver::lock_service_client::LockServiceClient;
 use super::bin_client::update_channel_cache;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -7,7 +11,6 @@ use std::hash::Hasher;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tonic::transport::Channel;
-use tribbler::rpc::trib_storage_client::TribStorageClient;
 use uuid::Uuid;
 
 #[derive(Debug, Default)]
@@ -54,8 +57,38 @@ impl LockClient {
         let chan_res =
             update_channel_cache(self.channel_cache.clone(), self.locks_addrs[ind].clone()).await;
         if chan_res.is_err() {
-            panic!();
+            panic!("Connection failed");
         }
+        let mut client = LockServiceClient::new(chan_res.unwrap());
+        client
+            .acquire(AcquireLocksInfo {
+                client_id: self.client_id.to_string(),
+                read_keys,
+                write_keys,
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn release_locks_with_server_index(
+        &self,
+        ind: usize,
+        read_keys: Vec<String>,
+        write_keys: Vec<String>,
+    ) -> TribResult<()> {
+        let chan_res =
+            update_channel_cache(self.channel_cache.clone(), self.locks_addrs[ind].clone()).await;
+        if chan_res.is_err() {
+            panic!("Connection failed");
+        }
+        let mut client = LockServiceClient::new(chan_res.unwrap());
+        client
+            .release(ReleaseLocksInfo {
+                client_id: self.client_id.to_string(),
+                read_keys,
+                write_keys,
+            })
+            .await?;
         Ok(())
     }
 
@@ -72,26 +105,28 @@ impl LockClient {
         let mut read_bins: HashMap<usize, Vec<String>> = HashMap::new();
         let mut write_bins: HashMap<usize, Vec<String>> = HashMap::new();
         let mut bins: HashSet<usize> = HashSet::new();
-        for key in read_keys {
-            if !read_held_cache.contains(&key) {
-                let ind = self.get_hash_index(&key) as usize;
+        for key in read_keys.iter() {
+            if !read_held_cache.contains(key) {
+                let ind = self.get_hash_index(key) as usize;
                 if !read_bins.contains_key(&ind) {
                     read_bins.insert(ind, vec![]);
                 }
                 bins.insert(ind);
-                read_bins.get_mut(&ind).unwrap().push(key);
+                read_bins.get_mut(&ind).unwrap().push(key.to_string());
             }
         }
-        for key in write_keys {
-            if !write_held_cache.contains(&key) {
-                let ind = self.get_hash_index(&key) as usize;
+        for key in write_keys.iter() {
+            if !write_held_cache.contains(key) {
+                let ind = self.get_hash_index(key) as usize;
                 if !write_bins.contains_key(&ind) {
                     write_bins.insert(ind, vec![]);
                 }
                 bins.insert(ind);
-                write_bins.get_mut(&ind).unwrap().push(key);
+                write_bins.get_mut(&ind).unwrap().push(key.to_string());
             }
         }
+        drop(read_held_cache);
+        drop(write_held_cache);
         for ind in bins {
             let mut read_keys = vec![];
             let mut write_keys = vec![];
@@ -104,20 +139,103 @@ impl LockClient {
                 write_keys = write_keys_option.unwrap().clone();
             }
             self.acquire_locks_with_server_index(ind, read_keys, write_keys)
-                .await;
+                .await?;
+        }
+        let mut read_held_cache = self.read_held_cache.write().await;
+        let mut write_held_cache = self.write_held_cache.write().await;
+
+        for key in read_keys.iter() {
+            if !read_held_cache.contains(key) {
+                read_held_cache.insert(key.to_string());
+            }
+        }
+        for key in write_keys.iter() {
+            if !write_held_cache.contains(key) {
+                write_held_cache.insert(key.to_string());
+            }
         }
         Ok(())
     }
 
-    async fn release_all_locks(
+    async fn release_all_locks(&self) -> TribResult<()> {
+        let read_held_cache = self.read_held_cache.read().await;
+        let write_held_cache = self.write_held_cache.read().await;
+        let mut read_keys = vec![];
+        let mut write_keys = vec![];
+        for key in read_held_cache.iter() {
+            read_keys.push(key.to_string());
+        }
+        for key in write_held_cache.iter() {
+            write_keys.push(key.to_string());
+        }
+        drop(read_held_cache);
+        drop(write_held_cache);
+        self.release_locks(read_keys, write_keys).await?;
+        Ok(())
+    }
+
+    async fn release_locks(
         &self,
         read_keys: Vec<String>,
         write_keys: Vec<String>,
     ) -> TribResult<()> {
-        Ok(())
-    }
+        let client_id = format!("{}", self.client_id);
 
-    async fn release_locks() -> TribResult<()> {
+        let read_held_cache = self.read_held_cache.read().await;
+        let write_held_cache = self.write_held_cache.read().await;
+
+        let mut read_bins: HashMap<usize, Vec<String>> = HashMap::new();
+        let mut write_bins: HashMap<usize, Vec<String>> = HashMap::new();
+        let mut bins: HashSet<usize> = HashSet::new();
+        for key in read_keys.iter() {
+            if read_held_cache.contains(key) {
+                let ind = self.get_hash_index(key) as usize;
+                if !read_bins.contains_key(&ind) {
+                    read_bins.insert(ind, vec![]);
+                }
+                bins.insert(ind);
+                read_bins.get_mut(&ind).unwrap().push(key.to_string());
+            }
+        }
+        for key in write_keys.iter() {
+            if write_held_cache.contains(key) {
+                let ind = self.get_hash_index(key) as usize;
+                if !write_bins.contains_key(&ind) {
+                    write_bins.insert(ind, vec![]);
+                }
+                bins.insert(ind);
+                write_bins.get_mut(&ind).unwrap().push(key.to_string());
+            }
+        }
+        drop(read_held_cache);
+        drop(write_held_cache);
+        for ind in bins {
+            let mut read_keys = vec![];
+            let mut write_keys = vec![];
+            let read_keys_option = read_bins.get(&ind);
+            if read_keys_option.is_some() {
+                read_keys = read_keys_option.unwrap().clone();
+            }
+            let write_keys_option = write_bins.get(&ind);
+            if write_keys_option.is_some() {
+                write_keys = write_keys_option.unwrap().clone();
+            }
+            self.release_locks_with_server_index(ind, read_keys, write_keys)
+                .await?;
+        }
+        let mut read_held_cache = self.read_held_cache.write().await;
+        let mut write_held_cache = self.write_held_cache.write().await;
+
+        for key in read_keys.iter() {
+            if read_held_cache.contains(key) {
+                read_held_cache.remove(key);
+            }
+        }
+        for key in write_keys.iter() {
+            if !write_held_cache.contains(key) {
+                write_held_cache.remove(key);
+            }
+        }
         Ok(())
     }
 }

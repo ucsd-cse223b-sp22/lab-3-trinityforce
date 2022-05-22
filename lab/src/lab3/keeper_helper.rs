@@ -2,6 +2,7 @@ use crate::lab3::bin_client::update_channel_cache;
 use crate::lab3::client::StorageClient;
 
 use super::constants::{LIST_LOG_KEYWORD, STR_LOG_KEYWORD, VALIDATION_BIT_KEY};
+use super::lock_client::{self, LockClient};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -78,6 +79,71 @@ async fn migrate_data(
     to: usize,
     interval_start: usize,
     interval_end: usize,
+) -> TribResult<()> {
+    // println!(
+    //     "migration: from {}, to {}, interval start {}, interval end {}",
+    //     from, to, interval_start, interval_end
+    // );
+    let addr_from = &backs[from];
+    let addr_to = &backs[to];
+    let chan_from = update_channel_cache(channel_cache.clone(), addr_from.to_string()).await?;
+    let chan_to = update_channel_cache(channel_cache.clone(), addr_to.to_string()).await?;
+    let client_from = StorageClient::new(addr_from, Some(chan_from));
+    let client_to = StorageClient::new(addr_to, Some(chan_to));
+    let raw_key_list = extract_raw_keys_from_addr(addr_from, channel_cache.clone()).await?;
+    for element in raw_key_list.iter() {
+        let bin_name = extract_bin_name_from_raw_key(element);
+        // println!("bin name: {}, element: {}", &bin_name, &element);
+        if bin_name == "" {
+            continue;
+        }
+        let mut hasher = DefaultHasher::new();
+        bin_name.hash(&mut hasher);
+        if !falls_into_interval(backs.clone(), bin_name, interval_start, interval_end) {
+            continue;
+        }
+        let values_from = client_from.list_get(&element).await?.0;
+        let values_to = client_to.list_get(&element).await?.0;
+        let mut hash_str = HashSet::new();
+        for s in values_to {
+            hash_str.insert(s);
+        }
+        for s in values_from {
+            if hash_str.contains(&s) {
+                continue;
+            }
+            client_to
+                .list_append(&KeyValue {
+                    key: element.to_string(),
+                    value: s.to_string(),
+                })
+                .await?;
+            // println!(
+            //     "{} start appending to {}---key: {}, value: {}",
+            //     addr_from.to_string(),
+            //     addr_to.to_string(),
+            //     element.to_string(),
+            //     s.to_string()
+            // );
+        }
+    }
+    client_to
+        .set(&KeyValue {
+            key: VALIDATION_BIT_KEY.to_string(),
+            value: "true".to_string(),
+        })
+        .await?;
+    Ok(())
+}
+
+async fn migrate_data_with_lock(
+    backs: Vec<String>,
+    channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
+    from: usize,
+    to: usize,
+    interval_start: usize,
+    interval_end: usize,
+    lock_client: *mut LockClient,
 ) -> TribResult<()> {
     // println!(
     //     "migration: from {}, to {}, interval start {}, interval end {}",
