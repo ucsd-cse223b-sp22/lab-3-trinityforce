@@ -95,7 +95,7 @@ impl LockClient {
         Ok(())
     }
 
-    async fn acquire_locks(
+    pub async fn acquire_locks(
         &self,
         read_keys: Vec<String>,
         write_keys: Vec<String>,
@@ -177,7 +177,7 @@ impl LockClient {
         Ok(())
     }
 
-    async fn release_locks(
+    pub async fn release_locks(
         &self,
         read_keys: Vec<String>,
         write_keys: Vec<String>,

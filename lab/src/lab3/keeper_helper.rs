@@ -41,6 +41,35 @@ async fn extract_raw_keys_from_addr(
     return Ok(filtered);
 }
 
+async fn extract_string_keys_from_addr(
+    addr: &str,
+    channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
+) -> TribResult<Vec<String>> {
+    let chan_res = update_channel_cache(channel_cache.clone(), addr.to_string()).await?;
+    let raw_client = StorageClient::new(addr, Some(chan_res));
+    //let raw_client = new_client(addr).await?;
+    let keys_list = raw_client
+        .keys(&Pattern {
+            prefix: "".to_string(),
+            suffix: "".to_string(),
+        })
+        .await?
+        .0;
+    // println!("get all keys in {}: {:?}", addr, keys_list);
+    let mut filtered = vec![];
+    for element in keys_list {
+        let splits = &element.split("::").collect::<Vec<&str>>();
+        if splits.len() <= 2 {
+            continue;
+        }
+        let identifier = splits[1];
+        if identifier == LIST_LOG_KEYWORD || identifier == STR_LOG_KEYWORD {
+            filtered.push(element.clone());
+        }
+    }
+    return Ok(filtered);
+}
+
 fn extract_bin_name_from_raw_key(raw_key: &str) -> String {
     let splits = raw_key.split("::").collect::<Vec<&str>>();
     if splits.len() < 2 {
@@ -136,6 +165,71 @@ async fn migrate_data(
     Ok(())
 }
 
+async fn migrate_set_data(
+    chan_from: Channel,
+    chan_to: Channel,
+    lock_client: Arc<LockClient>,
+    addr_to: String,
+    addr_from: String,
+    key: String,
+) -> TribResult<()> {
+    let client_from = StorageClient::new(&addr_from, Some(chan_from));
+    let client_to = StorageClient::new(&addr_to, Some(chan_to));
+    let mut read_keys = vec![];
+    read_keys.push(key.to_string());
+    lock_client.acquire_locks(read_keys.clone(), vec![]).await?;
+    let values_from = client_from.get(&key).await?;
+    if let Some(value) = values_from {
+        client_to
+            .set(&KeyValue {
+                key: key.to_string(),
+                value,
+            })
+            .await?;
+    }
+    lock_client.release_locks(read_keys, vec![]).await?;
+    Ok(())
+}
+
+async fn migrate_list_data(
+    chan_from: Channel,
+    chan_to: Channel,
+    lock_client: Arc<LockClient>,
+    addr_to: String,
+    addr_from: String,
+    key: String,
+) -> TribResult<()> {
+    let client_from = StorageClient::new(&addr_from, Some(chan_from));
+    let client_to = StorageClient::new(&addr_to, Some(chan_to));
+    let mut read_keys = vec![];
+    read_keys.push(key.to_string());
+    lock_client.acquire_locks(read_keys.clone(), vec![]).await?;
+    let values_from = client_from.list_get(&key).await?.0;
+    let values_to = client_to.list_get(&key).await?.0;
+    let mut values_hash = HashSet::new();
+    for v in values_to {
+        values_hash.insert(v);
+    }
+    for v in values_hash {
+        client_to
+            .list_remove(&KeyValue {
+                key: key.to_string(),
+                value: v,
+            })
+            .await?;
+    }
+    for v in values_from {
+        client_to
+            .list_append(&KeyValue {
+                key: key.to_string(),
+                value: v,
+            })
+            .await?;
+    }
+    lock_client.release_locks(read_keys, vec![]).await?;
+    Ok(())
+}
+
 async fn migrate_data_with_lock(
     backs: Vec<String>,
     channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
@@ -143,7 +237,7 @@ async fn migrate_data_with_lock(
     to: usize,
     interval_start: usize,
     interval_end: usize,
-    lock_client: *mut LockClient,
+    lock_client: Arc<LockClient>,
 ) -> TribResult<()> {
     // println!(
     //     "migration: from {}, to {}, interval start {}, interval end {}",
@@ -153,9 +247,10 @@ async fn migrate_data_with_lock(
     let addr_to = &backs[to];
     let chan_from = update_channel_cache(channel_cache.clone(), addr_from.to_string()).await?;
     let chan_to = update_channel_cache(channel_cache.clone(), addr_to.to_string()).await?;
-    let client_from = StorageClient::new(addr_from, Some(chan_from));
-    let client_to = StorageClient::new(addr_to, Some(chan_to));
+    let client_to = StorageClient::new(addr_to, Some(chan_to.clone()));
     let raw_key_list = extract_raw_keys_from_addr(addr_from, channel_cache.clone()).await?;
+    let raw_string_list = extract_string_keys_from_addr(addr_from, channel_cache.clone()).await?;
+    let mut joinHandlers = vec![];
     for element in raw_key_list.iter() {
         let bin_name = extract_bin_name_from_raw_key(element);
         // println!("bin name: {}, element: {}", &bin_name, &element);
@@ -167,30 +262,37 @@ async fn migrate_data_with_lock(
         if !falls_into_interval(backs.clone(), bin_name, interval_start, interval_end) {
             continue;
         }
-        let values_from = client_from.list_get(&element).await?.0;
-        let values_to = client_to.list_get(&element).await?.0;
-        let mut hash_str = HashSet::new();
-        for s in values_to {
-            hash_str.insert(s);
+        joinHandlers.push(tokio::spawn(migrate_list_data(
+            chan_from.clone(),
+            chan_to.clone(),
+            lock_client.clone(),
+            addr_to.to_string(),
+            addr_from.to_string(),
+            element.to_string(),
+        )));
+    }
+    for element in raw_string_list.iter() {
+        let bin_name = extract_bin_name_from_raw_key(element);
+        // println!("bin name: {}, element: {}", &bin_name, &element);
+        if bin_name == "" {
+            continue;
         }
-        for s in values_from {
-            if hash_str.contains(&s) {
-                continue;
-            }
-            client_to
-                .list_append(&KeyValue {
-                    key: element.to_string(),
-                    value: s.to_string(),
-                })
-                .await?;
-            // println!(
-            //     "{} start appending to {}---key: {}, value: {}",
-            //     addr_from.to_string(),
-            //     addr_to.to_string(),
-            //     element.to_string(),
-            //     s.to_string()
-            // );
+        let mut hasher = DefaultHasher::new();
+        bin_name.hash(&mut hasher);
+        if !falls_into_interval(backs.clone(), bin_name, interval_start, interval_end) {
+            continue;
         }
+        joinHandlers.push(tokio::spawn(migrate_set_data(
+            chan_from.clone(),
+            chan_to.clone(),
+            lock_client.clone(),
+            addr_to.to_string(),
+            addr_from.to_string(),
+            element.to_string(),
+        )));
+    }
+    for ret in joinHandlers {
+        ret.await?;
     }
     client_to
         .set(&KeyValue {
