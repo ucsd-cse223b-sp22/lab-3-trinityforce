@@ -20,6 +20,7 @@ pub struct LockClient {
     write_held_cache: RwLock<HashSet<String>>,
     locks_addrs: Vec<String>,
     channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
+    is_keeper: bool,
 }
 
 // use tonic::transport::Endpoint;
@@ -28,7 +29,7 @@ use tribbler::rpc;
 use tribbler::storage;
 
 impl LockClient {
-    pub fn new(locks_addrs: Vec<String>) -> Self {
+    pub fn new(locks_addrs: Vec<String>, is_keeper: bool) -> Self {
         let id = Uuid::new_v4();
         Self {
             client_id: Uuid::new_v4(),
@@ -36,6 +37,7 @@ impl LockClient {
             write_held_cache: RwLock::new(HashSet::new()),
             channel_cache: Arc::new(RwLock::new(HashMap::new())),
             locks_addrs: locks_addrs.clone(),
+            is_keeper: is_keeper,
         }
     }
 
@@ -65,6 +67,7 @@ impl LockClient {
                 client_id: self.client_id.to_string(),
                 read_keys,
                 write_keys,
+                is_keeper: self.is_keeper,
             })
             .await?;
         Ok(())

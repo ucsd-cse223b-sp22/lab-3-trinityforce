@@ -12,6 +12,7 @@ message AcquireLocksInfo {
     string clientId = 1;
     repeated string readKeys = 2;
     repeated string writeKeys = 3;
+    bool isKeeper = 4;
 }
 
 message ReleaseLocksInfo {

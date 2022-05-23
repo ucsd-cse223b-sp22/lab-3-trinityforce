@@ -6,6 +6,8 @@ pub struct AcquireLocksInfo {
     pub read_keys: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, repeated, tag = "3")]
     pub write_keys: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(bool, tag = "4")]
+    pub is_keeper: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReleaseLocksInfo {
