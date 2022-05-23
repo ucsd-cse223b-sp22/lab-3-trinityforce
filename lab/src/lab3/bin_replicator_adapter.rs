@@ -2,7 +2,8 @@ use super::bin_client::update_channel_cache;
 use super::bin_prefix_adapter::BinPrefixAdapter;
 use super::client::StorageClient;
 use super::constants::{
-    APPEND_ACTION, LIST_LOG_PREFIX, REMOVE_ACTION, STR_LOG_PREFIX, VALIDATION_BIT_KEY,
+    APPEND_ACTION, KEYS_PREFIX, LIST_KEYS_PREFIX, LIST_LOG_PREFIX, REMOVE_ACTION, STR_LOG_PREFIX,
+    VALIDATION_BIT_KEY,
 };
 use super::lock_client::LockClient;
 use serde::{Deserialize, Serialize};
@@ -133,6 +134,12 @@ impl storage::KeyString for BinReplicatorAdapter {
             return Err(Box::new(NotEnoughServers));
         }
 
+        let read_keys = vec![];
+        read_keys.push(format!("{}{}", KEYS_PREFIX, self.bin.to_string()));
+        self.lock_client
+            .acquire_locks(read_keys.clone(), vec![])
+            .await?;
+
         let potential_keys = self
             .keys_action(
                 &primary_adapter_option,
@@ -142,37 +149,14 @@ impl storage::KeyString for BinReplicatorAdapter {
                     suffix: p.suffix.to_string(),
                 },
             )
-            .await?;
-
-        let mut true_keys = vec![];
-        for key in potential_keys {
-            let logs_string = self
-                .get_action(&primary_adapter_option, &secondary_adapter_option, &key)
-                .await?;
-            let mut logs_struct = vec![];
-            for element in logs_string {
-                let log_entry: SortableLogRecord = serde_json::from_str(&element).unwrap();
-                logs_struct.push(log_entry);
-            }
-
-            // Get the log with largest clock
-
-            let mut max_clock: u64 = 0;
-            let mut result_str = "";
-            for element in logs_struct.iter() {
-                if element.clock_id > max_clock {
-                    max_clock = element.clock_id;
-                    result_str = &element.wrapped_string;
-                }
-            }
-            if result_str != "" {
-                let extracted_key = &key[STR_LOG_PREFIX.len()..];
-                if extracted_key.ends_with(&p.suffix) {
-                    true_keys.push(extracted_key.to_string());
-                }
-            }
+            .await;
+        if let Err(e) = potential_keys {
+            self.lock_client.release_locks(read_keys, vec![]).await?;
+            return Err(e);
         }
-        true_keys.sort_unstable();
+        self.lock_client.release_locks(read_keys, vec![]).await?;
+        let true_keys = potential_keys.unwrap();
+
         return Ok(storage::List(true_keys));
     }
 }
@@ -222,6 +206,12 @@ pub trait BinReplicatorHelper {
         wrapped_key: &str,
     ) -> TribResult<storage::List>;
     async fn keys_action(
+        &self,
+        primary_adapter_option: &Option<BinPrefixAdapter>,
+        secondary_adapter_option: &Option<BinPrefixAdapter>,
+        p: &storage::Pattern,
+    ) -> TribResult<Vec<String>>;
+    async fn list_keys_action(
         &self,
         primary_adapter_option: &Option<BinPrefixAdapter>,
         secondary_adapter_option: &Option<BinPrefixAdapter>,
@@ -521,6 +511,42 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
         if primary_adapter_option.is_some() && secondary_adapter_option.is_some() {
             let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
             let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
+            let vec_primary = primary_bin_prefix_adapter.keys(p).await;
+            if !vec_primary.is_err() {
+                return Ok(vec_primary.unwrap().0);
+            }
+            let vec_secondary = secondary_bin_prefix_adapter.keys(p).await;
+            if !vec_secondary.is_err() {
+                return Ok(vec_secondary.unwrap().0);
+            }
+            return Ok(vec![] as Vec<String>);
+        } else if primary_adapter_option.is_some() {
+            let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
+            let vec_primary = primary_bin_prefix_adapter.keys(p).await;
+            if !vec_primary.is_err() {
+                return Ok(vec_primary.unwrap().0);
+            }
+            return Ok(vec![] as Vec<String>);
+        } else if secondary_adapter_option.is_some() {
+            let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
+            let vec_secondary = secondary_bin_prefix_adapter.keys(p).await;
+            if !vec_secondary.is_err() {
+                return Ok(vec_secondary.unwrap().0);
+            }
+            return Ok(vec![] as Vec<String>);
+        }
+        return Ok(vec![] as Vec<String>);
+    }
+
+    async fn list_keys_action(
+        &self,
+        primary_adapter_option: &Option<BinPrefixAdapter>,
+        secondary_adapter_option: &Option<BinPrefixAdapter>,
+        p: &storage::Pattern,
+    ) -> TribResult<Vec<String>> {
+        if primary_adapter_option.is_some() && secondary_adapter_option.is_some() {
+            let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
+            let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
             let vec_primary = primary_bin_prefix_adapter.list_keys(p).await;
             if !vec_primary.is_err() {
                 return Ok(vec_primary.unwrap().0);
@@ -752,8 +778,14 @@ impl storage::KeyList for BinReplicatorAdapter {
             return Err(Box::new(NotEnoughServers));
         }
 
+        let read_keys = vec![];
+        read_keys.push(format!("{}{}", LIST_KEYS_PREFIX, self.bin.to_string()));
+        self.lock_client
+            .acquire_locks(read_keys.clone(), vec![])
+            .await?;
+
         let potential_keys = self
-            .keys_action(
+            .list_keys_action(
                 &primary_adapter_option,
                 &secondary_adapter_option,
                 &storage::Pattern {
@@ -761,35 +793,14 @@ impl storage::KeyList for BinReplicatorAdapter {
                     suffix: p.suffix.to_string(),
                 },
             )
-            .await?;
+            .await;
 
-        let mut true_keys = vec![];
-        for key in potential_keys {
-            let logs_struct = self
-                .get_sorted_log_struct_new(&primary_adapter_option, &secondary_adapter_option, &key)
-                .await?;
-
-            // Replay the whole log.
-            let mut replay_set = HashSet::new();
-            for element in logs_struct.iter().rev() {
-                if replay_set.contains(&element.wrapped_string) {
-                    continue;
-                }
-                if element.action == APPEND_ACTION {
-                    let key_str = key.as_str();
-                    let extracted_key = &key_str[LIST_LOG_PREFIX.len()..];
-                    if extracted_key.ends_with(&p.suffix) {
-                        true_keys.push(extracted_key.to_string());
-                    }
-                    break;
-                } else if element.action == REMOVE_ACTION {
-                    replay_set.insert(&element.wrapped_string);
-                } else {
-                    // println!("The operation is not supported!!!"); // Sanity check for action.
-                }
-            }
+        if let Err(e) = potential_keys {
+            self.lock_client.release_locks(read_keys, vec![]).await?;
+            return Err(e);
         }
-        true_keys.sort_unstable();
+        self.lock_client.release_locks(read_keys, vec![]).await?;
+        let true_keys = potential_keys.unwrap();
 
         return Ok(storage::List(true_keys));
     }
