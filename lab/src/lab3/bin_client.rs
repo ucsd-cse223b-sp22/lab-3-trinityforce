@@ -1,6 +1,7 @@
 use super::bin_replicator_adapter::BinReplicatorAdapter;
 use super::client::StorageClient;
 use super::constants::SCAN_INTERVAL_CONSTANT;
+use super::lock_client::{self, LockClient};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -137,6 +138,7 @@ impl BinStorageClient {
             name,
             backs_status.clone(),
             self.channel_cache.clone(),
+            Arc<LockClient>::new(),
         );
         // println!("{}", target_back_addr);
         Ok(Box::new(storage_bin_replicator_adapter))
@@ -161,6 +163,7 @@ impl BinStorage for BinStorageClient {
             name,
             back_status_copy,
             self.channel_cache.clone(),
+            Arc<LockClient>::new(),
         );
         // println!("{}", target_back_addr);
         Ok(Box::new(storage_bin_replicator_adapter))
