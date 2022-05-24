@@ -18,6 +18,7 @@ pub struct BinStorageClient {
     back_status_mut: RwLock<Vec<bool>>,
     last_scan_ts: RwLock<u64>,
     channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
+    lock_client: Arc<LockClient>,
 }
 
 impl BinStorageClient {
@@ -31,6 +32,7 @@ impl BinStorageClient {
             back_status_mut: RwLock::new(back_status),
             last_scan_ts: RwLock::new(0),
             channel_cache: Arc::new(RwLock::new(HashMap::new())),
+            lock_client: Arc<LockClient>::new(),
         }
     }
 
@@ -47,6 +49,7 @@ impl BinStorageClient {
             back_status_mut: RwLock::new(back_status),
             last_scan_ts: RwLock::new(0),
             channel_cache,
+            lock_client: Arc<LockClient>::new(),
         }
     }
 }
@@ -138,7 +141,7 @@ impl BinStorageClient {
             name,
             backs_status.clone(),
             self.channel_cache.clone(),
-            Arc<LockClient>::new(),
+            self.lock_client.clone(),
         );
         // println!("{}", target_back_addr);
         Ok(Box::new(storage_bin_replicator_adapter))
@@ -163,7 +166,7 @@ impl BinStorage for BinStorageClient {
             name,
             back_status_copy,
             self.channel_cache.clone(),
-            Arc<LockClient>::new(),
+            self.lock_client.clone(),
         );
         // println!("{}", target_back_addr);
         Ok(Box::new(storage_bin_replicator_adapter))
