@@ -7,6 +7,7 @@ use super::constants::{
     BACK_STATUS_STORE_KEY, KEEPER_STORE_NAME, MIGRATION_LOG_KEY, SCAN_INTERVAL_CONSTANT,
 };
 use super::keeper_helper;
+use super::lock_client::LockClient;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cmp;
@@ -32,6 +33,7 @@ pub struct KeeperMigrator {
     pub activated: bool,
     backs_status_mut: RwLock<Vec<bool>>,
     pub channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
+    pub lock_client: Arc<LockClient>,
 }
 
 impl KeeperMigrator {
@@ -49,6 +51,7 @@ impl KeeperMigrator {
             activated: false,
             backs_status_mut: RwLock::new(backs_status.clone()),
             channel_cache: Arc::new(RwLock::new(HashMap::new())),
+            lock_client: Arc<LockClient>::new(),
         }
     }
 
@@ -67,7 +70,12 @@ impl KeeperMigrator {
             activated: false,
             backs_status_mut: RwLock::new(backs_status.clone()),
             channel_cache,
+            lock_client: Arc<LockClient>::new(),
         }
+    }
+
+    pub fn update_lock_client(&mut self, lock_client: Arc<LockClient>) {
+        self.lock_client = lock_client;
     }
 }
 
@@ -253,6 +261,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
                 self.channel_cache.clone(),
                 node_join_index,
                 back_status_copy,
+                self.lock_client.clone(),
             )
             .await?;
             // println!("End migrate_to_joined_node");
@@ -291,6 +300,7 @@ impl KeeperMigratorTrait for KeeperMigrator {
                 self.channel_cache.clone(),
                 node_leave_migration_index.unwrap(),
                 back_status_copy,
+                self.lock_client.clone(),
             )
             .await?;
             // println!("End migrate_to_left_node");

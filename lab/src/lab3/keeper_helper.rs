@@ -308,6 +308,7 @@ pub async fn migrate_to_joined_node(
     channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
     joined_node_index: usize,
     back_status: Vec<bool>,
+    lock_client: Arc<LockClient>,
 ) -> TribResult<()> {
     let backs_len = backs.len();
     let mut index = joined_node_index + backs_len - 1;
@@ -338,13 +339,14 @@ pub async fn migrate_to_joined_node(
     // find the successor, and fetch all the data from successor
     while index <= joined_node_index + backs_len {
         if back_status[index % backs_len] {
-            migrate_data(
+            migrate_data_with_lock(
                 backs.clone(),
                 channel_cache.clone(),
                 index % backs_len,
                 joined_node_index,
                 interval_start,
                 interval_end,
+                lock_client,
             )
             .await?;
         }
@@ -358,6 +360,7 @@ pub async fn migrate_to_left_node(
     channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
     left_node_index: usize,
     back_status: Vec<bool>,
+    lock_client: Arc<LockClient>,
 ) -> TribResult<()> {
     let backs_len = backs.len();
     let mut interval_start: usize = 0;
@@ -425,13 +428,14 @@ pub async fn migrate_to_left_node(
         "Migrate first from node {} to node {}, the data range from index {} to {}",
         first_predecessor, successor, interval_start, interval_end
     );*/
-    let migrate_first = tokio::spawn(migrate_data(
+    let migrate_first = tokio::spawn(migrate_data_with_lock(
         backs.clone(),
         channel_cache.clone(),
         first_predecessor,
         successor,
         interval_start,
         interval_end,
+        lock_client.clone(),
     ));
     interval_start = (first_predecessor + 1) % backs_len;
     interval_end = left_node_index;
@@ -439,13 +443,14 @@ pub async fn migrate_to_left_node(
         "Migrate second from node {} to node {}, the data range from index {} to {}",
         successor, second_successor, interval_start, interval_end
     );*/
-    let migrate_second = tokio::spawn(migrate_data(
+    let migrate_second = tokio::spawn(migrate_data_with_lock(
         backs,
         channel_cache,
         successor,
         second_successor,
         interval_start,
         interval_end,
+        lock_client,
     ));
     migrate_first.await?;
     migrate_second.await?;
