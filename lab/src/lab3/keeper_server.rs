@@ -256,7 +256,6 @@ impl KeeperMigratorTrait for KeeperMigrator {
                     value: serde_json::to_string(&back_status_copy)?,
                 })
                 .await?;
-            println!("Start migrate_to_joined_node");
             keeper_helper::migrate_to_joined_node(
                 self.backs.clone(),
                 self.channel_cache.clone(),

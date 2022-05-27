@@ -66,6 +66,7 @@ impl LockClient {
             panic!("Connection failed");
         }
         let mut client = LockServiceClient::new(chan_res.unwrap());
+        println!("r {:?} w {:?}", read_keys, write_keys);
         client
             .acquire(AcquireLocksInfo {
                 client_id: self.client_id.to_string(),
@@ -135,29 +136,33 @@ impl LockClient {
         drop(read_held_cache);
         drop(write_held_cache);
         for ind in bins {
-            let mut read_keys = vec![];
-            let mut write_keys = vec![];
+            let mut purified_read_keys = vec![];
+            let mut purified_write_keys = vec![];
             let read_keys_option = read_bins.get(&ind);
             if read_keys_option.is_some() {
-                read_keys = read_keys_option.unwrap().clone();
+                purified_read_keys = read_keys_option.unwrap().clone();
             }
             let write_keys_option = write_bins.get(&ind);
             if write_keys_option.is_some() {
-                write_keys = write_keys_option.unwrap().clone();
+                purified_write_keys = write_keys_option.unwrap().clone();
             }
-            self.acquire_locks_with_server_index(ind, read_keys, write_keys)
+            self.acquire_locks_with_server_index(ind, purified_read_keys, purified_write_keys)
                 .await?;
         }
         let mut read_held_cache = self.read_held_cache.write().await;
         let mut write_held_cache = self.write_held_cache.write().await;
 
         for key in read_keys.iter() {
+            // println!("read_held_cache trying to insert key: {}", key);
             if !read_held_cache.contains(key) {
+                //println!("read_held_cache inserting key: {}", key);
                 read_held_cache.insert(key.to_string());
             }
         }
         for key in write_keys.iter() {
+            // println!("write_held_cache trying to insert key: {}", key);
             if !write_held_cache.contains(key) {
+                // println!("write_held_cache inserting key: {}", key);
                 write_held_cache.insert(key.to_string());
             }
         }
@@ -217,17 +222,17 @@ impl LockClient {
         drop(read_held_cache);
         drop(write_held_cache);
         for ind in bins {
-            let mut read_keys = vec![];
-            let mut write_keys = vec![];
+            let mut purified_read_keys = vec![];
+            let mut purified_write_keys = vec![];
             let read_keys_option = read_bins.get(&ind);
             if read_keys_option.is_some() {
-                read_keys = read_keys_option.unwrap().clone();
+                purified_read_keys = read_keys_option.unwrap().clone();
             }
             let write_keys_option = write_bins.get(&ind);
             if write_keys_option.is_some() {
-                write_keys = write_keys_option.unwrap().clone();
+                purified_write_keys = write_keys_option.unwrap().clone();
             }
-            self.release_locks_with_server_index(ind, read_keys, write_keys)
+            self.release_locks_with_server_index(ind, purified_read_keys, purified_write_keys)
                 .await?;
         }
         let mut read_held_cache = self.read_held_cache.write().await;
@@ -239,7 +244,9 @@ impl LockClient {
             }
         }
         for key in write_keys.iter() {
-            if !write_held_cache.contains(key) {
+            // println!("trying to remove key: {}", key);
+            if write_held_cache.contains(key) {
+                // println!("remove key {} from cache", key);
                 write_held_cache.remove(key);
             }
         }
