@@ -70,7 +70,7 @@ use async_trait::async_trait;
 impl storage::KeyString for BinReplicatorAdapter {
     async fn get(&self, key: &str) -> TribResult<Option<String>> {
         let wrapped_key = format!("{}{}", STR_LOG_PREFIX, key);
-        let read_keys = vec![];
+        let mut read_keys = vec![];
         read_keys.push(key.to_string());
         self.lock_client
             .acquire_locks(read_keys.clone(), vec![])
@@ -106,7 +106,7 @@ impl storage::KeyString for BinReplicatorAdapter {
             return Err(Box::new(NotEnoughServers));
         }
 
-        let write_keys = vec![];
+        let mut write_keys = vec![];
         write_keys.push(kv.key.to_string());
         self.lock_client
             .acquire_locks(vec![], write_keys.clone())
@@ -134,7 +134,7 @@ impl storage::KeyString for BinReplicatorAdapter {
             return Err(Box::new(NotEnoughServers));
         }
 
-        let read_keys = vec![];
+        let mut read_keys = vec![];
         read_keys.push(format!("{}{}", KEYS_PREFIX, self.bin.to_string()));
         self.lock_client
             .acquire_locks(read_keys.clone(), vec![])
@@ -220,12 +220,6 @@ pub trait BinReplicatorHelper {
     async fn get_read_replicas_access_new(
         &self,
     ) -> (Option<BinPrefixAdapter>, Option<BinPrefixAdapter>);
-    async fn get_sorted_log_struct_new(
-        &self,
-        primary_adapter_option: &Option<BinPrefixAdapter>,
-        secondary_adapter_option: &Option<BinPrefixAdapter>,
-        wrapped_key: &str,
-    ) -> TribResult<Vec<SortableLogRecord>>;
 }
 
 #[async_trait]
@@ -369,6 +363,10 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
         if primary_adapter_option.is_some() && secondary_adapter_option.is_some() {
             let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
             let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
+            println!(
+                "{},{}",
+                primary_bin_prefix_adapter.addr, secondary_bin_prefix_adapter.addr
+            );
             primary_bin_prefix_adapter.list_append(kv).await;
             secondary_bin_prefix_adapter.list_append(kv).await;
         } else if primary_adapter_option.is_some() {
@@ -646,36 +644,6 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
         }
         return (primary_adapter_option, secondary_adapter_option);
     }
-
-    async fn get_sorted_log_struct_new(
-        &self,
-        primary_adapter_option: &Option<BinPrefixAdapter>,
-        secondary_adapter_option: &Option<BinPrefixAdapter>,
-        wrapped_key: &str,
-    ) -> TribResult<Vec<SortableLogRecord>> {
-        let logs_string = self
-            .get_action(
-                primary_adapter_option,
-                secondary_adapter_option,
-                &wrapped_key,
-            )
-            .await?;
-        let mut logs_struct = vec![];
-        for element in logs_string {
-            let log_entry: SortableLogRecord = serde_json::from_str(&element).unwrap();
-            logs_struct.push(log_entry);
-        }
-        logs_struct.sort_unstable_by(|a, b| {
-            if a.clock_id < b.clock_id {
-                return Ordering::Less;
-            } else if a.clock_id > b.clock_id {
-                return Ordering::Greater;
-            }
-            return Ordering::Equal;
-        });
-        logs_struct.dedup_by(|a, b| a.clock_id == b.clock_id); // Is it necessary to dedup?
-        Ok(logs_struct)
-    }
 }
 
 #[async_trait] // VERY IMPORTANT !!!=
@@ -689,7 +657,7 @@ impl storage::KeyList for BinReplicatorAdapter {
             return Err(Box::new(NotEnoughServers));
         }
 
-        let read_keys = vec![];
+        let mut read_keys = vec![];
         read_keys.push(key.to_string());
         self.lock_client
             .acquire_locks(read_keys.clone(), vec![])
@@ -703,9 +671,10 @@ impl storage::KeyList for BinReplicatorAdapter {
                 &wrapped_key,
             )
             .await;
-
+        let res = list_ret.unwrap();
+        println!("get list action: {:?}", res.0);
         self.lock_client.release_locks(read_keys, vec![]).await?;
-        return list_ret;
+        return Ok(res);
     }
 
     async fn list_append(&self, kv: &storage::KeyValue) -> TribResult<bool> {
@@ -718,7 +687,7 @@ impl storage::KeyList for BinReplicatorAdapter {
             return Err(Box::new(NotEnoughServers));
         }
 
-        let write_keys = vec![];
+        let mut write_keys = vec![];
         write_keys.push(kv.key.to_string());
         self.lock_client
             .acquire_locks(vec![], write_keys.clone())
@@ -748,7 +717,7 @@ impl storage::KeyList for BinReplicatorAdapter {
             return Err(Box::new(NotEnoughServers));
         }
 
-        let write_keys = vec![];
+        let mut write_keys = vec![];
         write_keys.push(kv.key.to_string());
         self.lock_client
             .acquire_locks(vec![], write_keys.clone())
@@ -778,7 +747,7 @@ impl storage::KeyList for BinReplicatorAdapter {
             return Err(Box::new(NotEnoughServers));
         }
 
-        let read_keys = vec![];
+        let mut read_keys = vec![];
         read_keys.push(format!("{}{}", LIST_KEYS_PREFIX, self.bin.to_string()));
         self.lock_client
             .acquire_locks(read_keys.clone(), vec![])

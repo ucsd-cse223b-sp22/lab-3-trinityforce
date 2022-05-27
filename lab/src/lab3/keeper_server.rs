@@ -1,5 +1,6 @@
 use super::super::keeper;
 use super::super::keeper::keeper_service_client::KeeperServiceClient;
+use super::bin_client::init_lock_servers_addresses;
 use super::bin_client::update_channel_cache;
 use super::bin_client::BinStorageClient;
 use super::client::StorageClient;
@@ -43,6 +44,7 @@ impl KeeperMigrator {
         backs: &Vec<String>,
         backs_status: Vec<bool>,
     ) -> Self {
+        let lock_addrs = init_lock_servers_addresses();
         Self {
             this,
             keepers: keepers.clone(),
@@ -51,7 +53,7 @@ impl KeeperMigrator {
             activated: false,
             backs_status_mut: RwLock::new(backs_status.clone()),
             channel_cache: Arc::new(RwLock::new(HashMap::new())),
-            lock_client: Arc<LockClient>::new(),
+            lock_client: Arc::new(LockClient::new(lock_addrs, true)),
         }
     }
 
@@ -62,6 +64,7 @@ impl KeeperMigrator {
         backs_status: Vec<bool>,
         channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
     ) -> Self {
+        let lock_addrs = init_lock_servers_addresses();
         Self {
             this,
             keepers: keepers.clone(),
@@ -70,12 +73,8 @@ impl KeeperMigrator {
             activated: false,
             backs_status_mut: RwLock::new(backs_status.clone()),
             channel_cache,
-            lock_client: Arc<LockClient>::new(),
+            lock_client: Arc::new(LockClient::new(lock_addrs, true)),
         }
-    }
-
-    pub fn update_lock_client(&mut self, lock_client: Arc<LockClient>) {
-        self.lock_client = lock_client;
     }
 }
 

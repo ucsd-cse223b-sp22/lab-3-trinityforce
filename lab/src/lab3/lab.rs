@@ -14,7 +14,7 @@ use tribbler::storage::{self, KeyString};
 use tribbler::trib;
 use tribbler::{config::BackConfig, err::TribResult};
 
-use super::bin_client::{update_channel_cache, BinStorageClient};
+use super::bin_client::{update_channel_cache, BinStorageClient, LockServerPinger};
 use super::frontend_server::FrontendServer;
 use tribbler::config::KeeperConfig;
 
@@ -248,4 +248,11 @@ pub async fn new_client(addr: &str) -> TribResult<Box<dyn Storage>> {
     // let mut client = TribStorageClient::connect(String::from(addr)).await?;
     let storage_client = StorageClient::new(addr, None);
     Ok(Box::new(storage_client))
+}
+
+pub async fn new_lockserver_ping_test() -> TribResult<()> {
+    // let mut client = TribStorageClient::connect(String::from(addr)).await?;
+    let pinger = LockServerPinger::new();
+    pinger.ping_test().await?;
+    Ok(())
 }

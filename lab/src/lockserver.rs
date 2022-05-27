@@ -19,6 +19,11 @@ pub struct ReleaseLocksInfo {
     pub write_keys: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PingRequest {
+    #[prost(string, tag = "1")]
+    pub client_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Success {
     #[prost(bool, tag = "1")]
     pub flag: bool,
@@ -125,6 +130,20 @@ pub mod lock_service_client {
             let path = http::uri::PathAndQuery::from_static("/lockserver.LockService/Heartbeat");
             self.inner.unary(request.into_request(), path, codec).await
         }
+        pub async fn ping(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PingRequest>,
+        ) -> Result<tonic::Response<super::Success>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/lockserver.LockService/Ping");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
     }
 }
 #[doc = r" Generated server implementations."]
@@ -145,6 +164,10 @@ pub mod lock_service_server {
         async fn heartbeat(
             &self,
             request: tonic::Request<super::AcquireLocksInfo>,
+        ) -> Result<tonic::Response<super::Success>, tonic::Status>;
+        async fn ping(
+            &self,
+            request: tonic::Request<super::PingRequest>,
         ) -> Result<tonic::Response<super::Success>, tonic::Status>;
     }
     #[derive(Debug)]
@@ -269,6 +292,37 @@ pub mod lock_service_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = HeartbeatSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec).apply_compression_config(
+                            accept_compression_encodings,
+                            send_compression_encodings,
+                        );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/lockserver.LockService/Ping" => {
+                    #[allow(non_camel_case_types)]
+                    struct PingSvc<T: LockService>(pub Arc<T>);
+                    impl<T: LockService> tonic::server::UnaryService<super::PingRequest> for PingSvc<T> {
+                        type Response = super::Success;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PingRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).ping(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = PingSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec).apply_compression_config(
                             accept_compression_encodings,

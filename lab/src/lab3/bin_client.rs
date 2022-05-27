@@ -1,6 +1,12 @@
+use crate::lockserver::PingRequest;
+
+use super::super::lockserver::lock_service_client::LockServiceClient;
 use super::bin_replicator_adapter::BinReplicatorAdapter;
 use super::client::StorageClient;
-use super::constants::SCAN_INTERVAL_CONSTANT;
+use super::constants::{
+    DEFAULT_LOCK_SERVERS_STARTING_PORT, DEFAULT_NUM_LOCK_SERVERS, LOCK_SERVERS_STARTING_PORT_KEY,
+    NUM_LOCK_SERVERS_KEY, SCAN_INTERVAL_CONSTANT,
+};
 use super::lock_client::{self, LockClient};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -11,6 +17,60 @@ use tokio::sync::RwLock;
 use tonic::transport::{Channel, Endpoint};
 use tribbler::err::TribResult;
 use tribbler::storage::{BinStorage, KeyString, Storage};
+extern crate dotenv;
+use dotenv::dotenv;
+use std::env;
+
+pub(crate) fn init_lock_servers_addresses() -> Vec<String> {
+    dotenv::from_filename("config.env").ok();
+    let mut start_port = DEFAULT_LOCK_SERVERS_STARTING_PORT;
+    let mut num_servers = DEFAULT_NUM_LOCK_SERVERS;
+    for (key, value) in env::vars() {
+        if key == LOCK_SERVERS_STARTING_PORT_KEY {
+            start_port = value.parse::<usize>().unwrap();
+        } else if key == NUM_LOCK_SERVERS_KEY {
+            num_servers = value.parse::<usize>().unwrap();
+        }
+    }
+    let mut lock_addrs = vec![];
+    for i in 0..num_servers {
+        let lock_addr = format!("127.0.0.1:{}", start_port + i);
+        lock_addrs.push(lock_addr);
+    }
+    return lock_addrs;
+}
+
+#[derive(Debug, Default)]
+pub struct LockServerPinger {
+    lock_addrs: Vec<String>,
+}
+
+impl LockServerPinger {
+    pub fn new() -> Self {
+        let lock_addrs = init_lock_servers_addresses();
+        Self {
+            lock_addrs: lock_addrs.clone(),
+        }
+    }
+
+    pub async fn ping_test(&self) -> TribResult<()> {
+        for addr in self.lock_addrs.clone() {
+            let chan = Endpoint::from_shared(format!("http://{}", addr))?
+                .connect()
+                .await?;
+            let mut client = LockServiceClient::new(chan);
+            let response = client
+                .ping(PingRequest {
+                    client_id: "bin_client".to_string(),
+                })
+                .await?;
+            if !response.into_inner().flag {
+                panic!("ping returns failure");
+            }
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct BinStorageClient {
@@ -27,12 +87,13 @@ impl BinStorageClient {
         for _ in 0..backs.len() {
             back_status.push(false);
         }
+        let lock_addrs = init_lock_servers_addresses();
         Self {
             backs: backs.clone(),
             back_status_mut: RwLock::new(back_status),
             last_scan_ts: RwLock::new(0),
             channel_cache: Arc::new(RwLock::new(HashMap::new())),
-            lock_client: Arc<LockClient>::new(),
+            lock_client: Arc::new(LockClient::new(lock_addrs, false)),
         }
     }
 
@@ -44,17 +105,14 @@ impl BinStorageClient {
         for _ in 0..backs.len() {
             back_status.push(false);
         }
+        let lock_addrs = init_lock_servers_addresses();
         Self {
             backs: backs.clone(),
             back_status_mut: RwLock::new(back_status),
             last_scan_ts: RwLock::new(0),
             channel_cache,
-            lock_client: Arc<LockClient>::new(),
+            lock_client: Arc::new(LockClient::new(lock_addrs, false)),
         }
-    }
-
-    pub fn update_lock_client(&mut self, lock_client: Arc<LockClient>) {
-        self.lock_client = lock_client;
     }
 }
 

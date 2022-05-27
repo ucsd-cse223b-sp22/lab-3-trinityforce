@@ -346,7 +346,7 @@ pub async fn migrate_to_joined_node(
                 joined_node_index,
                 interval_start,
                 interval_end,
-                lock_client,
+                lock_client.clone(),
             )
             .await?;
         }

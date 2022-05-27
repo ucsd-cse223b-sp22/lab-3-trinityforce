@@ -183,5 +183,6 @@ mod lock_client;
 pub use crate::lab3::lab::new_bin_client;
 pub use crate::lab3::lab::new_client;
 pub use crate::lab3::lab::new_front;
+pub use crate::lab3::lab::new_lockserver_ping_test;
 pub use crate::lab3::lab::serve_back;
 pub use crate::lab3::lab::serve_keeper;
