@@ -114,6 +114,10 @@ impl BinStorageClient {
             lock_client: Arc::new(LockClient::new(lock_addrs, false)),
         }
     }
+
+    pub fn update_lock_client(&mut self, lock_client: Arc<LockClient>) {
+        self.lock_client = lock_client;
+    }
 }
 
 use async_trait::async_trait;

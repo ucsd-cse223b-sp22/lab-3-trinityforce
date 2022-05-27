@@ -186,7 +186,9 @@ impl KeeperMigratorTrait for KeeperMigrator {
             return Ok(());
         }*/
         let back_status_copy = back_status.clone();
-        let bin_store = BinStorageClient::new_with_channel(&self.backs, self.channel_cache.clone());
+        let mut bin_store =
+            BinStorageClient::new_with_channel(&self.backs, self.channel_cache.clone());
+        bin_store.update_lock_client(self.lock_client.clone());
         let bin_client = bin_store.bin_with_backs(KEEPER_STORE_NAME, &back_status_copy)?;
 
         // if the keeper is in its first round, fetch back status and migration log

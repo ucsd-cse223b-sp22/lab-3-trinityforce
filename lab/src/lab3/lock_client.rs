@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Default)]
 pub struct LockClient {
-    client_id: Uuid,
+    client_id: String,
     read_held_cache: RwLock<HashSet<String>>,
     write_held_cache: RwLock<HashSet<String>>,
     locks_addrs: Vec<String>,
@@ -30,9 +30,13 @@ use tribbler::storage;
 
 impl LockClient {
     pub fn new(locks_addrs: Vec<String>, is_keeper: bool) -> Self {
-        let id = Uuid::new_v4();
+        let uuid = Uuid::new_v4();
+        let mut keeper_prefix = "";
+        if is_keeper {
+            keeper_prefix = "keeper-";
+        }
         Self {
-            client_id: Uuid::new_v4(),
+            client_id: format!("{}{}", keeper_prefix, uuid),
             read_held_cache: RwLock::new(HashSet::new()),
             write_held_cache: RwLock::new(HashSet::new()),
             channel_cache: Arc::new(RwLock::new(HashMap::new())),

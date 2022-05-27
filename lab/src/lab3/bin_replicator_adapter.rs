@@ -71,9 +71,9 @@ impl storage::KeyString for BinReplicatorAdapter {
     async fn get(&self, key: &str) -> TribResult<Option<String>> {
         let wrapped_key = format!("{}{}", STR_LOG_PREFIX, key);
         let mut read_keys = vec![];
-        read_keys.push(key.to_string());
+        read_keys.push(wrapped_key.to_string());
         self.lock_client
-            .acquire_locks(read_keys.clone(), vec![])
+            .acquire_locks(self.lockkey_decorator(read_keys.clone()), vec![])
             .await?;
 
         // Get ther first alive and valid bin.
@@ -92,7 +92,9 @@ impl storage::KeyString for BinReplicatorAdapter {
             )
             .await;
 
-        self.lock_client.release_locks(read_keys, vec![]).await?;
+        self.lock_client
+            .release_locks(self.lockkey_decorator(read_keys), vec![])
+            .await?;
         return result_str;
     }
 
@@ -107,9 +109,9 @@ impl storage::KeyString for BinReplicatorAdapter {
         }
 
         let mut write_keys = vec![];
-        write_keys.push(kv.key.to_string());
+        write_keys.push(wrapped_key.to_string());
         self.lock_client
-            .acquire_locks(vec![], write_keys.clone())
+            .acquire_locks(vec![], self.lockkey_decorator(write_keys.clone()))
             .await?;
 
         // Try to append the entry in primary and secondary
@@ -121,7 +123,9 @@ impl storage::KeyString for BinReplicatorAdapter {
                 kv,
             )
             .await;
-        self.lock_client.release_locks(vec![], write_keys).await?;
+        self.lock_client
+            .release_locks(vec![], self.lockkey_decorator(write_keys))
+            .await?;
         result
     }
 
@@ -163,6 +167,7 @@ impl storage::KeyString for BinReplicatorAdapter {
 
 #[async_trait]
 pub trait BinReplicatorHelper {
+    fn lockkey_decorator(&self, keys: Vec<String>) -> Vec<String>;
     async fn get_read_replicas_access(&self) -> Option<BinPrefixAdapter>; // starting from returning the first living valid machine
     async fn get_write_replicas_access(
         &self,
@@ -224,6 +229,15 @@ pub trait BinReplicatorHelper {
 
 #[async_trait]
 impl BinReplicatorHelper for BinReplicatorAdapter {
+    fn lockkey_decorator(&self, wrap_keys: Vec<String>) -> Vec<String> {
+        let mut ret_vec = vec![];
+        for key in wrap_keys {
+            let bin_wrapped_key = format!("{}::{}", self.bin, key);
+            ret_vec.push(bin_wrapped_key);
+        }
+        return ret_vec;
+    }
+
     async fn get_read_replicas_access(&self) -> Option<BinPrefixAdapter> {
         let backs = self.backs.clone();
         let start = self.hash_index as usize;
@@ -666,9 +680,9 @@ impl storage::KeyList for BinReplicatorAdapter {
         }
 
         let mut read_keys = vec![];
-        read_keys.push(key.to_string());
+        read_keys.push(wrapped_key.to_string());
         self.lock_client
-            .acquire_locks(read_keys.clone(), vec![])
+            .acquire_locks(self.lockkey_decorator(read_keys.clone()), vec![])
             .await?;
 
         // Get all logs
@@ -681,7 +695,9 @@ impl storage::KeyList for BinReplicatorAdapter {
             .await;
         let res = list_ret.unwrap();
         println!("get list action: {:?}", res.0);
-        self.lock_client.release_locks(read_keys, vec![]).await?;
+        self.lock_client
+            .release_locks(self.lockkey_decorator(read_keys), vec![])
+            .await?;
         return Ok(res);
     }
 
@@ -698,7 +714,7 @@ impl storage::KeyList for BinReplicatorAdapter {
         let mut write_keys = vec![];
         write_keys.push(kv.key.to_string());
         self.lock_client
-            .acquire_locks(vec![], write_keys.clone())
+            .acquire_locks(vec![], self.lockkey_decorator(write_keys.clone()))
             .await?;
 
         // Try to append the entry in primary and secondary
@@ -711,7 +727,9 @@ impl storage::KeyList for BinReplicatorAdapter {
             )
             .await;
 
-        self.lock_client.release_locks(vec![], write_keys).await?;
+        self.lock_client
+            .release_locks(vec![], self.lockkey_decorator(write_keys))
+            .await?;
         return result;
     }
 
@@ -728,7 +746,7 @@ impl storage::KeyList for BinReplicatorAdapter {
         let mut write_keys = vec![];
         write_keys.push(kv.key.to_string());
         self.lock_client
-            .acquire_locks(vec![], write_keys.clone())
+            .acquire_locks(vec![], self.lockkey_decorator(write_keys.clone()))
             .await?;
 
         // Try to remove the entry in primary and secondary
@@ -741,7 +759,9 @@ impl storage::KeyList for BinReplicatorAdapter {
             )
             .await;
 
-        self.lock_client.release_locks(vec![], write_keys).await?;
+        self.lock_client
+            .release_locks(vec![], self.lockkey_decorator(write_keys))
+            .await?;
         return result;
     }
 
