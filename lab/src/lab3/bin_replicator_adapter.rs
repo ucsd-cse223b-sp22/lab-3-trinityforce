@@ -110,6 +110,10 @@ impl storage::KeyString for BinReplicatorAdapter {
 
         let mut write_keys = vec![];
         write_keys.push(wrapped_key.to_string());
+        println!(
+            "set acquire {:?}",
+            self.lockkey_decorator(write_keys.clone())
+        );
         self.lock_client
             .acquire_locks(vec![], self.lockkey_decorator(write_keys.clone()))
             .await?;
@@ -123,6 +127,10 @@ impl storage::KeyString for BinReplicatorAdapter {
                 kv,
             )
             .await;
+        println!(
+            "set release {:?}",
+            self.lockkey_decorator(write_keys.clone())
+        );
         self.lock_client
             .release_locks(vec![], self.lockkey_decorator(write_keys))
             .await?;
