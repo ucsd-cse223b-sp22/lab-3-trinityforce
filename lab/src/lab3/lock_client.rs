@@ -153,12 +153,16 @@ impl LockClient {
         let mut write_held_cache = self.write_held_cache.write().await;
 
         for key in read_keys.iter() {
+            // println!("read_held_cache trying to insert key: {}", key);
             if !read_held_cache.contains(key) {
+                //println!("read_held_cache inserting key: {}", key);
                 read_held_cache.insert(key.to_string());
             }
         }
         for key in write_keys.iter() {
+            // println!("write_held_cache trying to insert key: {}", key);
             if !write_held_cache.contains(key) {
+                // println!("write_held_cache inserting key: {}", key);
                 write_held_cache.insert(key.to_string());
             }
         }
@@ -240,9 +244,9 @@ impl LockClient {
             }
         }
         for key in write_keys.iter() {
-            println!("trying to remove key: {}", key);
-            if !write_held_cache.contains(key) {
-                println!("remove key {} from cache", key);
+            // println!("trying to remove key: {}", key);
+            if write_held_cache.contains(key) {
+                // println!("remove key {} from cache", key);
                 write_held_cache.remove(key);
             }
         }

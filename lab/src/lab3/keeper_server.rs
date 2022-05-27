@@ -196,21 +196,15 @@ impl KeeperMigratorTrait for KeeperMigrator {
             // println!("Keeper {} is promoted", self.this);
             node_join_migration_index = None;
             node_leave_migration_index = None;
-            println!("BACK_STATUS_STORE_KEY START 0");
             let back_status_str = bin_client.get(BACK_STATUS_STORE_KEY).await?;
-            println!("BACK_STATUS_STORE_KEY END 1");
-            println!("MIGRATION_LOG_KEY START 2");
             let migration_log_str = bin_client.get(MIGRATION_LOG_KEY).await?;
-            println!("MIGRATION_LOG_KEY START 3");
             if back_status_str.is_none() {
-                println!("BACK_STATUS_STORE_KEY START 4");
                 bin_client
                     .set(&KeyValue {
                         key: BACK_STATUS_STORE_KEY.to_string(),
                         value: serde_json::to_string(&back_status_copy)?,
                     })
                     .await?;
-                println!("BACK_STATUS_STORE_KEY START 5");
                 self.activated = true;
                 // println!("Get null back status");
             }
@@ -249,24 +243,19 @@ impl KeeperMigratorTrait for KeeperMigrator {
             })?;
             tokio::time::sleep(Duration::from_secs(SCAN_INTERVAL_CONSTANT)).await;
             // append migration log
-            println!("MIGRATION_LOG_KEY START 10");
             bin_client
                 .set(&KeyValue {
                     key: MIGRATION_LOG_KEY.to_string(),
                     value: log_str.clone(),
                 })
                 .await?;
-            println!("MIGRATION_LOG_KEY START 11");
             // update back status
-            println!("BACK_STATUS_STORE_KEY START 7");
             bin_client
                 .set(&KeyValue {
                     key: BACK_STATUS_STORE_KEY.to_string(),
                     value: serde_json::to_string(&back_status_copy)?,
                 })
                 .await?;
-            println!("BACK_STATUS_STORE_KEY START 8");
-            println!("Start migrate_to_joined_node");
             keeper_helper::migrate_to_joined_node(
                 self.backs.clone(),
                 self.channel_cache.clone(),
@@ -276,14 +265,12 @@ impl KeeperMigratorTrait for KeeperMigrator {
             )
             .await?;
             // println!("End migrate_to_joined_node");
-            println!("MIGRATION_LOG_KEY START 20");
             bin_client
                 .set(&KeyValue {
                     key: MIGRATION_LOG_KEY.to_string(),
                     value: "".to_string(),
                 })
                 .await?;
-            println!("MIGRATION_LOG_KEY START 21");
             return Ok(());
         } else if node_leave_migration_index.is_some() {
             self.activated = true;
@@ -294,7 +281,6 @@ impl KeeperMigratorTrait for KeeperMigrator {
             })?;
             tokio::time::sleep(Duration::from_secs(SCAN_INTERVAL_CONSTANT)).await;
             // append migration log
-            println!("MIGRATION_LOG_KEY START 48");
             bin_client
                 .set(&KeyValue {
                     key: MIGRATION_LOG_KEY.to_string(),
@@ -302,14 +288,12 @@ impl KeeperMigratorTrait for KeeperMigrator {
                 })
                 .await?;
             // update back status
-            println!("BACK_STATUS_STORE_KEY START 33");
             bin_client
                 .set(&KeyValue {
                     key: BACK_STATUS_STORE_KEY.to_string(),
                     value: serde_json::to_string(&back_status_copy)?,
                 })
                 .await?;
-            println!("BACK_STATUS_STORE_KEY START 34");
             // println!("Start migrate_to_left_node");
             keeper_helper::migrate_to_left_node(
                 self.backs.clone(),
@@ -320,14 +304,12 @@ impl KeeperMigratorTrait for KeeperMigrator {
             )
             .await?;
             // println!("End migrate_to_left_node");
-            println!("MIGRATION_LOG_KEY START 49");
             let res = bin_client
                 .set(&KeyValue {
                     key: MIGRATION_LOG_KEY.to_string(),
                     value: "".to_string(),
                 })
                 .await;
-            println!("MIGRATION_LOG_KEY START 50");
             if res.is_err() {
                 // println!("Send back status error");
                 // println!("{:?}", res);
@@ -337,14 +319,12 @@ impl KeeperMigratorTrait for KeeperMigrator {
         // only update back status if the keeper is in its first round or view change happens
         if !self.activated {
             self.activated = true;
-            println!("BACK_STATUS_STORE_KEY START 37");
             bin_client
                 .set(&KeyValue {
                     key: BACK_STATUS_STORE_KEY.to_string(),
                     value: serde_json::to_string(&back_status_copy)?,
                 })
                 .await?;
-            println!("BACK_STATUS_STORE_KEY START 38");
         }
 
         Ok(())
