@@ -417,17 +417,21 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
         wrapped_key: &str,
         kv: &storage::KeyValue,
     ) -> TribResult<bool> {
+        let new_kv = &storage::KeyValue {
+            key: wrapped_key.to_string(),
+            value: kv.value.to_string(),
+        };
         if primary_adapter_option.is_some() && secondary_adapter_option.is_some() {
             let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
             let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
-            primary_bin_prefix_adapter.set(kv).await;
-            secondary_bin_prefix_adapter.set(kv).await;
+            primary_bin_prefix_adapter.set(new_kv).await;
+            secondary_bin_prefix_adapter.set(new_kv).await;
         } else if primary_adapter_option.is_some() {
             let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
-            primary_bin_prefix_adapter.set(kv).await;
+            primary_bin_prefix_adapter.set(new_kv).await;
         } else if secondary_adapter_option.is_some() {
             let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
-            secondary_bin_prefix_adapter.set(kv).await;
+            secondary_bin_prefix_adapter.set(new_kv).await;
         }
         Ok(true)
     }
