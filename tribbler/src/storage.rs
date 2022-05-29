@@ -15,6 +15,14 @@ pub struct KeyValue {
     pub value: String,
 }
 
+/// A type comprising key-list pair
+pub struct KeyValueList {
+    /// the key
+    pub key: String,
+    /// the value
+    pub list: Vec<String>,
+}
+
 impl KeyValue {
     /// convenience method for constructing a [KeyValue] from two `&str`s
     pub fn new(key: &str, value: &str) -> KeyValue {
@@ -66,6 +74,9 @@ pub trait KeyString {
 pub trait KeyList {
     /// Get the list. Empty if not set.
     async fn list_get(&self, key: &str) -> TribResult<List>;
+
+    /// Set the list to target
+    async fn list_set(&self, kl: &KeyValueList) -> TribResult<bool>;
 
     /// Append a string to the list. return true when no error.
     async fn list_append(&self, kv: &KeyValue) -> TribResult<bool>;
@@ -148,6 +159,12 @@ impl KeyList for MemStorage {
             Some(l) => Ok(l.clone()),
             None => Ok(List(vec![])),
         }
+    }
+
+    async fn list_set(&self, kl: &KeyValueList) -> TribResult<bool> {
+        let mut kvl = self.kv_list.write().map_err(|e| e.to_string())?;
+        kvl.insert(kl.key.clone(), List(kl.list.clone()));
+        Ok(true)
     }
 
     async fn list_append(&self, kv: &KeyValue) -> TribResult<bool> {

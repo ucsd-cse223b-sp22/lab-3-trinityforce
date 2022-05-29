@@ -218,6 +218,13 @@ pub trait BinReplicatorHelper {
         secondary_adapter_option: &Option<BinPrefixAdapter>,
         wrapped_key: &str,
     ) -> TribResult<storage::List>;
+    async fn set_list_action(
+        &self,
+        primary_adapter_option: &Option<BinPrefixAdapter>,
+        secondary_adapter_option: &Option<BinPrefixAdapter>,
+        wrapped_key: &str,
+        kl: &storage::KeyValueList,
+    ) -> TribResult<bool>;
     async fn keys_action(
         &self,
         primary_adapter_option: &Option<BinPrefixAdapter>,
@@ -401,6 +408,36 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
         } else {
             let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
             secondary_bin_prefix_adapter.list_append(new_kv).await;
+        }
+        Ok(true)
+    }
+
+    async fn set_list_action(
+        &self,
+        primary_adapter_option: &Option<BinPrefixAdapter>,
+        secondary_adapter_option: &Option<BinPrefixAdapter>,
+        wrapped_key: &str,
+        kl: &storage::KeyValueList,
+    ) -> TribResult<bool> {
+        let new_kl = &storage::KeyValueList {
+            key: wrapped_key.to_string(),
+            list: kl.list.clone(),
+        };
+        if primary_adapter_option.is_some() && secondary_adapter_option.is_some() {
+            let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
+            let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
+            println!(
+                "{},{}",
+                primary_bin_prefix_adapter.addr, secondary_bin_prefix_adapter.addr
+            );
+            primary_bin_prefix_adapter.list_set(new_kl).await;
+            secondary_bin_prefix_adapter.list_set(new_kl).await;
+        } else if primary_adapter_option.is_some() {
+            let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
+            primary_bin_prefix_adapter.list_set(new_kl).await;
+        } else {
+            let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
+            secondary_bin_prefix_adapter.list_set(new_kl).await;
         }
         Ok(true)
     }
@@ -732,6 +769,38 @@ impl storage::KeyList for BinReplicatorAdapter {
                 &secondary_adapter_option,
                 &wrapped_key,
                 kv,
+            )
+            .await;
+
+        self.lock_client
+            .release_locks(vec![], self.lockkey_decorator(write_keys))
+            .await?;
+        return result;
+    }
+
+    async fn list_set(&self, kl: &storage::KeyValueList) -> TribResult<bool> {
+        let wrapped_key = format!("{}{}", LIST_LOG_PREFIX, kl.key);
+
+        // Get first two "valid" bins.
+        let (primary_adapter_option, secondary_adapter_option) =
+            self.get_write_replicas_access().await;
+        if primary_adapter_option.is_none() && secondary_adapter_option.is_none() {
+            return Err(Box::new(NotEnoughServers));
+        }
+
+        let mut write_keys = vec![];
+        write_keys.push(kl.key.to_string());
+        self.lock_client
+            .acquire_locks(vec![], self.lockkey_decorator(write_keys.clone()))
+            .await?;
+
+        // Try to append the entry in primary and secondary
+        let result = self
+            .set_list_action(
+                &primary_adapter_option,
+                &secondary_adapter_option,
+                &wrapped_key,
+                kl,
             )
             .await;
 

@@ -518,7 +518,7 @@ async fn test_bin_storage() -> TribResult<()> {
                 if op_count % 100 == 0 {
                     println!("{}", op_count);
                 }
-                if op_count >= 15000 {
+                if op_count >= 1500 {
                     break;
                 }
             }
@@ -533,4 +533,4 @@ async fn test_bin_storage() -> TribResult<()> {
 }
 
 
-// cargo test --package lab --test lab3_test -- test_single_list_append_one_node_dead --exact --nocapture
+// cargo test --package lab --test lab3_test -- test_bin_storage --exact --nocapture

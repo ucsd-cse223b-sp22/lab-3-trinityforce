@@ -82,6 +82,18 @@ impl storage::KeyList for BinPrefixAdapter {
         return storage_client.list_get(wrapped_key.as_str()).await;
     }
 
+    async fn list_set(&self, kl: &storage::KeyValueList) -> TribResult<bool> {
+        let chan = update_channel_cache(self.channel_cache.clone(), self.addr.clone()).await?;
+        let storage_client = StorageClient::new(&self.addr, Some(chan));
+        let wrapped_key = format!("{}::{}", self.bin, kl.key);
+        return storage_client
+            .list_set(&storage::KeyValueList {
+                key: wrapped_key.to_string(),
+                list: kl.list.clone(),
+            })
+            .await;
+    }
+
     async fn list_append(&self, kv: &storage::KeyValue) -> TribResult<bool> {
         let chan = update_channel_cache(self.channel_cache.clone(), self.addr.clone()).await?;
         let storage_client = StorageClient::new(&self.addr, Some(chan));

@@ -119,6 +119,23 @@ impl storage::KeyList for StorageClient {
         }
     }
 
+    async fn list_set(&self, kl: &storage::KeyValueList) -> TribResult<bool> {
+        let mut client = match &self.chan {
+            Some(chan) => TribStorageClient::new(chan.clone()),
+            None => self.connect().await?,
+        };
+
+        let r = client
+            .list_set(rpc::KeyValueList {
+                key: kl.key.to_string(),
+                list: kl.list.clone(),
+            })
+            .await?;
+        match r.into_inner().value {
+            value => Ok(value),
+        }
+    }
+
     async fn list_remove(&self, kv: &storage::KeyValue) -> TribResult<u32> {
         let mut client = match &self.chan {
             Some(chan) => TribStorageClient::new(chan.clone()),

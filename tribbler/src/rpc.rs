@@ -6,6 +6,13 @@ pub struct KeyValue {
     pub value: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyValueList {
+    #[prost(string, tag = "1")]
+    pub key: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "2")]
+    pub list: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Pattern {
     #[prost(string, tag = "1")]
     pub prefix: ::prost::alloc::string::String,
@@ -158,6 +165,20 @@ pub mod trib_storage_client {
             let path = http::uri::PathAndQuery::from_static("/rpc.TribStorage/listGet");
             self.inner.unary(request.into_request(), path, codec).await
         }
+        pub async fn list_set(
+            &mut self,
+            request: impl tonic::IntoRequest<super::KeyValueList>,
+        ) -> Result<tonic::Response<super::Bool>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/rpc.TribStorage/listSet");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
         pub async fn list_append(
             &mut self,
             request: impl tonic::IntoRequest<super::KeyValue>,
@@ -239,6 +260,10 @@ pub mod trib_storage_server {
             &self,
             request: tonic::Request<super::Key>,
         ) -> Result<tonic::Response<super::StringList>, tonic::Status>;
+        async fn list_set(
+            &self,
+            request: tonic::Request<super::KeyValueList>,
+        ) -> Result<tonic::Response<super::Bool>, tonic::Status>;
         async fn list_append(
             &self,
             request: tonic::Request<super::KeyValue>,
@@ -403,6 +428,37 @@ pub mod trib_storage_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = listGetSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec).apply_compression_config(
+                            accept_compression_encodings,
+                            send_compression_encodings,
+                        );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/rpc.TribStorage/listSet" => {
+                    #[allow(non_camel_case_types)]
+                    struct listSetSvc<T: TribStorage>(pub Arc<T>);
+                    impl<T: TribStorage> tonic::server::UnaryService<super::KeyValueList> for listSetSvc<T> {
+                        type Response = super::Bool;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::KeyValueList>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).list_set(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = listSetSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec).apply_compression_config(
                             accept_compression_encodings,
