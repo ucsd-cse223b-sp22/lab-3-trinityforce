@@ -11,13 +11,13 @@ use lab::{self, lab3};
 use log::LevelFilter;
 use tokio::{sync::mpsc::Sender as MpscSender, task::JoinHandle};
 
-use tribbler::addr::rand::rand_port;
+use tribbler::{addr::rand::rand_port};
 #[allow(unused_imports)]
 use tribbler::{
     self,
     config::BackConfig,
     err::{TribResult, TribblerError},
-    storage::{KeyList, KeyString, KeyValue, MemStorage, Pattern, Storage},
+    storage::{KeyList, KeyString, KeyValue, KeyValueList, MemStorage, Pattern, Storage},
 };
 
 const DEFAULT_HOST: &str = "127.0.0.1:3000";
@@ -66,6 +66,13 @@ fn kv(key: &str, value: &str) -> KeyValue {
     KeyValue {
         key: key.to_string(),
         value: value.to_string(),
+    }
+}
+
+fn kl(key: &str, list: &Vec<String>) -> KeyValueList {
+    KeyValueList {
+        key: key.to_string(),
+        list: list.clone(),
     }
 }
 
@@ -356,5 +363,18 @@ async fn test_shutdown() -> TribResult<()> {
         ),
         Err(_) => (),
     };
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_list_set() -> TribResult<()> {
+    let (client, _srv, _shut) = setup(None, None).await?;
+    let vec1: Vec<String> = vec!["v1".to_string()];
+    let vec2: Vec<String> = vec!["v2".to_string()];
+    let _ = client.list_set(&kl("t1", &vec1)).await?;
+    let _ = client.list_set(&kl("t1", &vec2)).await?;
+    let r = client.list_get("t1").await?.0;
+    assert_eq!(1, r.len());
+    assert_eq!("v2", r[0]);
     Ok(())
 }
