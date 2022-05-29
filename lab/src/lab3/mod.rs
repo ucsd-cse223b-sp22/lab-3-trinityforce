@@ -180,6 +180,7 @@ mod keeper_rpc_receiver;
 mod keeper_server;
 mod lab;
 mod lock_client;
+mod transaction_client;
 pub use crate::lab3::lab::new_bin_client;
 pub use crate::lab3::lab::new_client;
 pub use crate::lab3::lab::new_front;
