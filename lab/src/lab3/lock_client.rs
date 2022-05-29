@@ -66,7 +66,7 @@ impl LockClient {
             panic!("Connection failed");
         }
         let mut client = LockServiceClient::new(chan_res.unwrap());
-        println!("r {:?} w {:?}", read_keys, write_keys);
+        // println!("r {:?} w {:?}", read_keys, write_keys);
         client
             .acquire(AcquireLocksInfo {
                 client_id: self.client_id.to_string(),

@@ -114,6 +114,30 @@ impl TribStorage for BackendServer {
         Ok(Response::new(msg_body))
     }
 
+    async fn list_set(
+        &self,
+        request: tonic::Request<rpc::KeyValueList>,
+    ) -> Result<tonic::Response<rpc::Bool>, tonic::Status> {
+        let request_inner = request.into_inner();
+        let key = request_inner.key.to_string();
+        let list_val = request_inner.list.clone();
+        let flag = match self
+            .store
+            .list_set(&storage::KeyValueList {
+                key: key,
+                list: list_val,
+            })
+            .await
+        {
+            Ok(res) => res,
+            Err(_) => {
+                return Err(Status::unavailable("list set error"));
+            }
+        };
+        let msg_body = rpc::Bool { value: flag };
+        Ok(Response::new(msg_body))
+    }
+
     async fn list_append(
         &self,
         request: tonic::Request<rpc::KeyValue>,

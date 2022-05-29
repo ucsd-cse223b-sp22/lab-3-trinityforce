@@ -7,6 +7,11 @@ message KeyValue {
   string value = 2;
 }
 
+message KeyValueList {
+  string key = 1;
+  repeated string list = 2;
+}
+
 message Pattern {
   string prefix = 1;
   string suffix = 2;
@@ -41,6 +46,7 @@ service TribStorage {
   rpc set(KeyValue) returns (Bool);
   rpc keys(Pattern) returns (StringList);
   rpc listGet(Key) returns (StringList);
+  rpc listSet(KeyValueList) returns (Bool);
   rpc listAppend(KeyValue) returns (Bool);
   rpc listRemove(KeyValue) returns (ListRemoveResponse);
   rpc listKeys(Pattern) returns (StringList);
