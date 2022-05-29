@@ -43,6 +43,7 @@ pub struct BinReplicatorAdapter {
     back_status: Vec<bool>,
     channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
     lock_client: Arc<LockClient>,
+    with_lock: bool,
 }
 
 impl BinReplicatorAdapter {
@@ -61,8 +62,18 @@ impl BinReplicatorAdapter {
             back_status: back_status.clone(),
             channel_cache,
             lock_client,
+            with_lock: false,
         }
     }
+
+    pub fn acquire_lock(&mut self) {
+        self.with_lock = true;
+    }
+
+    pub fn release_lock(&mut self) {
+        self.with_lock = false;
+    }
+
 }
 
 use async_trait::async_trait;
@@ -72,9 +83,11 @@ impl storage::KeyString for BinReplicatorAdapter {
         let wrapped_key = format!("{}{}", STR_LOG_PREFIX, key);
         let mut read_keys = vec![];
         read_keys.push(wrapped_key.to_string());
-        self.lock_client
-            .acquire_locks(self.lockkey_decorator(read_keys.clone()), vec![])
-            .await?;
+        if !self.with_lock {
+            self.lock_client
+                .acquire_locks(self.lockkey_decorator(read_keys.clone()), vec![])
+                .await?;
+        }
 
         // Get ther first alive and valid bin.
         let (primary_adapter_option, secondary_adapter_option) =
@@ -92,9 +105,11 @@ impl storage::KeyString for BinReplicatorAdapter {
             )
             .await;
 
-        self.lock_client
-            .release_locks(self.lockkey_decorator(read_keys), vec![])
-            .await?;
+        if !self.with_lock {
+            self.lock_client
+                .release_locks(self.lockkey_decorator(read_keys), vec![])
+                .await?;
+        }
         return result_str;
     }
 
@@ -114,9 +129,11 @@ impl storage::KeyString for BinReplicatorAdapter {
             "set acquire {:?}",
             self.lockkey_decorator(write_keys.clone())
         );
-        self.lock_client
-            .acquire_locks(vec![], self.lockkey_decorator(write_keys.clone()))
-            .await?;
+        if !self.with_lock {
+            self.lock_client
+                .acquire_locks(vec![], self.lockkey_decorator(write_keys.clone()))
+                .await?;
+        }
 
         // Try to append the entry in primary and secondary
         let result = self
@@ -131,9 +148,11 @@ impl storage::KeyString for BinReplicatorAdapter {
             "set release {:?}",
             self.lockkey_decorator(write_keys.clone())
         );
-        self.lock_client
-            .release_locks(vec![], self.lockkey_decorator(write_keys))
-            .await?;
+        if !self.with_lock {
+            self.lock_client
+                .release_locks(vec![], self.lockkey_decorator(write_keys))
+                .await?;
+        }
         result
     }
 
@@ -148,9 +167,11 @@ impl storage::KeyString for BinReplicatorAdapter {
 
         let mut read_keys = vec![];
         read_keys.push(format!("{}{}", KEYS_PREFIX, self.bin.to_string()));
-        self.lock_client
-            .acquire_locks(read_keys.clone(), vec![])
-            .await?;
+        if !self.with_lock {
+            self.lock_client
+                .acquire_locks(read_keys.clone(), vec![])
+                .await?;
+        }
 
         let potential_keys = self
             .keys_action(
@@ -163,10 +184,14 @@ impl storage::KeyString for BinReplicatorAdapter {
             )
             .await;
         if let Err(e) = potential_keys {
-            self.lock_client.release_locks(read_keys, vec![]).await?;
+            if !self.with_lock {
+                self.lock_client.release_locks(read_keys, vec![]).await?;
+            }
             return Err(e);
         }
-        self.lock_client.release_locks(read_keys, vec![]).await?;
+        if !self.with_lock {
+            self.lock_client.release_locks(read_keys, vec![]).await?;
+        }
         let true_keys = potential_keys.unwrap();
 
         return Ok(storage::List(true_keys));
@@ -726,9 +751,11 @@ impl storage::KeyList for BinReplicatorAdapter {
 
         let mut read_keys = vec![];
         read_keys.push(wrapped_key.to_string());
-        self.lock_client
-            .acquire_locks(self.lockkey_decorator(read_keys.clone()), vec![])
-            .await?;
+        if !self.with_lock {
+            self.lock_client
+                .acquire_locks(self.lockkey_decorator(read_keys.clone()), vec![])
+                .await?;
+        }
 
         // Get all logs
         let list_ret = self
@@ -740,9 +767,11 @@ impl storage::KeyList for BinReplicatorAdapter {
             .await;
         let res = list_ret.unwrap();
         println!("get list action: {:?}", res.0);
-        self.lock_client
-            .release_locks(self.lockkey_decorator(read_keys), vec![])
-            .await?;
+        if !self.with_lock {
+            self.lock_client
+                .release_locks(self.lockkey_decorator(read_keys), vec![])
+                .await?;
+        }
         return Ok(res);
     }
 
@@ -758,9 +787,11 @@ impl storage::KeyList for BinReplicatorAdapter {
 
         let mut write_keys = vec![];
         write_keys.push(kv.key.to_string());
-        self.lock_client
-            .acquire_locks(vec![], self.lockkey_decorator(write_keys.clone()))
-            .await?;
+        if !self.with_lock {
+            self.lock_client
+                .acquire_locks(vec![], self.lockkey_decorator(write_keys.clone()))
+                .await?;
+        }
 
         // Try to append the entry in primary and secondary
         let result = self
@@ -771,10 +802,11 @@ impl storage::KeyList for BinReplicatorAdapter {
                 kv,
             )
             .await;
-
-        self.lock_client
-            .release_locks(vec![], self.lockkey_decorator(write_keys))
-            .await?;
+        if !self.with_lock {
+            self.lock_client
+                .release_locks(vec![], self.lockkey_decorator(write_keys))
+                .await?;
+        }
         return result;
     }
 
@@ -790,9 +822,11 @@ impl storage::KeyList for BinReplicatorAdapter {
 
         let mut write_keys = vec![];
         write_keys.push(kl.key.to_string());
-        self.lock_client
-            .acquire_locks(vec![], self.lockkey_decorator(write_keys.clone()))
-            .await?;
+        if !self.with_lock {
+            self.lock_client
+                .acquire_locks(vec![], self.lockkey_decorator(write_keys.clone()))
+                .await?;
+        }
 
         // Try to append the entry in primary and secondary
         let result = self
@@ -804,9 +838,11 @@ impl storage::KeyList for BinReplicatorAdapter {
             )
             .await;
 
-        self.lock_client
-            .release_locks(vec![], self.lockkey_decorator(write_keys))
-            .await?;
+        if !self.with_lock {
+            self.lock_client
+                .release_locks(vec![], self.lockkey_decorator(write_keys))
+                .await?;
+        }
         return result;
     }
 
@@ -822,9 +858,11 @@ impl storage::KeyList for BinReplicatorAdapter {
 
         let mut write_keys = vec![];
         write_keys.push(kv.key.to_string());
-        self.lock_client
-            .acquire_locks(vec![], self.lockkey_decorator(write_keys.clone()))
-            .await?;
+        if !self.with_lock {
+            self.lock_client
+                .acquire_locks(vec![], self.lockkey_decorator(write_keys.clone()))
+                .await?;
+        }
 
         // Try to remove the entry in primary and secondary
         let result = self
@@ -836,9 +874,11 @@ impl storage::KeyList for BinReplicatorAdapter {
             )
             .await;
 
-        self.lock_client
-            .release_locks(vec![], self.lockkey_decorator(write_keys))
-            .await?;
+        if !self.with_lock {
+            self.lock_client
+                .release_locks(vec![], self.lockkey_decorator(write_keys))
+                .await?;
+        }
         return result;
     }
 
@@ -854,9 +894,11 @@ impl storage::KeyList for BinReplicatorAdapter {
 
         let mut read_keys = vec![];
         read_keys.push(format!("{}{}", LIST_KEYS_PREFIX, self.bin.to_string()));
-        self.lock_client
-            .acquire_locks(read_keys.clone(), vec![])
-            .await?;
+        if !self.with_lock {
+            self.lock_client
+                .acquire_locks(read_keys.clone(), vec![])
+                .await?;
+        }
 
         let potential_keys = self
             .list_keys_action(
@@ -870,10 +912,14 @@ impl storage::KeyList for BinReplicatorAdapter {
             .await;
 
         if let Err(e) = potential_keys {
-            self.lock_client.release_locks(read_keys, vec![]).await?;
+            if !self.with_lock {
+                self.lock_client.release_locks(read_keys, vec![]).await?;
+            }
             return Err(e);
         }
-        self.lock_client.release_locks(read_keys, vec![]).await?;
+        if !self.with_lock {
+            self.lock_client.release_locks(read_keys, vec![]).await?;
+        }
         let true_keys = potential_keys.unwrap();
 
         return Ok(storage::List(true_keys));

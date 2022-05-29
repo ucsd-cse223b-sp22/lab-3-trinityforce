@@ -5,7 +5,7 @@ use super::bin_replicator_adapter::BinReplicatorAdapter;
 use super::client::StorageClient;
 use super::constants::{
     DEFAULT_LOCK_SERVERS_STARTING_PORT, DEFAULT_NUM_LOCK_SERVERS, LOCK_SERVERS_STARTING_PORT_KEY,
-    NUM_LOCK_SERVERS_KEY, SCAN_INTERVAL_CONSTANT,
+    NUM_LOCK_SERVERS_KEY, SCAN_INTERVAL_CONSTANT, STR_LOG_KEYWORD, LIST_LOG_KEYWORD, TRANS_LOG_STR_PREFIX, TRANS_LOG_LIST_PREFIX,
 };
 use super::lock_client::{self, LockClient};
 use std::collections::hash_map::DefaultHasher;
@@ -16,10 +16,126 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tonic::transport::{Channel, Endpoint};
 use tribbler::err::TribResult;
-use tribbler::storage::{BinStorage, KeyString, Storage};
+use tribbler::storage::{BinStorage, KeyString, Storage, KeyValue};
 extern crate dotenv;
 use dotenv::dotenv;
 use std::env;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct transaction_log {
+    transaction_id: String,
+    transaction_key: String,
+    old_value: Vec<String>,
+}
+
+pub struct transaction_client {
+    transaction_id: String,
+    transaction_num: RwLock<u64>,
+    lock_client: Arc<LockClient>,
+    channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
+    bin_storage: Arc<BinStorageClient>,
+}
+
+pub fn split_string(s: String) -> (String, String) {
+    let splits = s.split("::").collect::<Vec<&str>>();
+    if splits.len() <= 2 {
+        panic!("Split Error");
+    }
+    return (s[0], s[1]);
+}
+
+impl transaction_client {
+    pub fn new(lock_client: Arc<LockClient>, transaction_id: String, channel_cache: Arc<RwLock<HashMap<String, Channel>>>, bin_storage: Arc<BinStorageClient>) -> Self {
+        Self {
+            transaction_id,
+            transaction_num: RwLock<u64>::new(0),
+            lock_client,
+            channel_cache,
+            bin_storage,
+        }
+    }
+
+    pub async fn transaction_start(&mut self, read_keys_map: HashMap<String, Vec<String>>, write_keys_map: HashMap<String, Vec<String>>) -> String {
+        let write_keys = vec![];
+        let read_keys = vec![];
+        for (bin, key_list) in write_keys_map.iter() {
+            for key in key_list.iter() {
+                write_keys.push(format!("{}::{}", bin, key));
+            }
+        }
+        for (bin, key_list) in read_keys_map.iter() {
+            for key in key_list.iter() {
+                read_keys.push(format!("{}::{}", bin, key))
+            }
+        }
+        self.lock_client.acquire_locks(read_keys, write_keys).await?;
+        let trans_num = self.transaction_num.write().await;
+        let trans_key = trans_num.to_string();
+        trans_num = trans_num + 1;
+        drop(trans_num);
+        for (bin, key_list) in write_keys_map.iter() {
+            let client = self.bin_storage.bin(bin).await?;
+            client.acquire_lock();
+            for raw_key in key_list.iter() {
+                let (prefix, key) = split_string(raw_key.to_string());
+                let mut trans_log = transaction_log {
+                    transaction_id: self.transaction_id.to_string(),
+                    transaction_key: trans_key.to_string(),
+                    old_value: vec![],
+                };
+                trans_num = trans_num + 1;
+                drop(trans_num);
+                if prefix == STR_LOG_KEYWORD {
+                    let old_value = client.get(&key).await?;
+                    if old_value.is_none() {
+                        trans_log.old_value.push("");
+                        client.set(&KeyValue {
+                            key: format!("{}{}", TRANS_LOG_STR_PREFIX, key),
+                            value: serde_json::to_string(&trans_log)?,
+                        }).await?;
+                    } else {
+                        trans_log.old_value.push(old_value.unwrap());
+                        client.set(&KeyValue {
+                            key: format!("{}{}", TRANS_LOG_STR_PREFIX, key),
+                            value: serde_json::to_string(&trans_log)?,
+                        }).await?;
+                    }
+                }
+                else if prefix == LIST_LOG_KEYWORD {
+                    let old_value = client.list_get(&key).await?.0;
+                    trans_log.old_value.append(&mut old_value);
+                    client.set(&KeyValue {
+                        key: format!("{}{}", TRANS_LOG_LIST_PREFIX, key),
+                        value: serde_json::to_string(&trans_log)?,
+                    }).await?;
+                }
+            }
+        }
+        return trans_key;
+    }
+
+    pub fn transaction_end(&self, trans_key: String, read_keys_map: HashMap<String, Vec<String>>, write_keys_map: HashMap<String, Vec<String>>) -> TribResult<()> {
+        let write_keys = vec![];
+        let read_keys = vec![];
+        for (bin, key_list) in write_keys_map.iter() {
+            for key in key_list.iter() {
+                write_keys.push(format!("{}::{}", bin, key));
+            }
+        }
+        for (bin, key_list) in read_keys_map.iter() {
+            for key in key_list.iter() {
+                read_keys.push(format!("{}::{}", bin, key))
+            }
+        }
+        let client = self.bin_storage.bin(&self.transaction_id).await?;
+        client.set(&KeyValue{
+            key: trans_key.to_string(),
+            value: "True".to_string(),
+        }).await?;
+        self.lock_client.release_locks(read_keys, write_keys).await?;
+        Ok(())
+    }
+}
 
 pub(crate) fn init_lock_servers_addresses() -> Vec<String> {
     dotenv::from_filename("config.env").ok();

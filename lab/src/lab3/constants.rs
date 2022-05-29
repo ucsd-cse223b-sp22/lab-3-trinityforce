@@ -11,6 +11,8 @@ pub const REMOVE_ACTION: &str = "REMOVE";
 pub const KEEPER_STORE_NAME: &str = "KEEPER-STORE";
 pub const BACK_STATUS_STORE_KEY: &str = "BACK-STATUS";
 pub const MIGRATION_LOG_KEY: &str = "MIGRATION-LOG";
+pub const TRANS_LOG_STR_PREFIX: &str = "TRANS-LOG-STR::";
+pub const TRANS_LOG_LIST_PREFIX: &str = "TRANS-LOG-LIST::";
 pub const MIGRATION_INTERVAL: u64 = 7;
 pub const BRAODCAST_CLOCK_INTERVAL: u64 = 1;
 
