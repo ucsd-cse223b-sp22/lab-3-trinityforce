@@ -4,10 +4,12 @@ use super::super::lockserver::lock_service_client::LockServiceClient;
 use super::bin_replicator_adapter::BinReplicatorAdapter;
 use super::client::StorageClient;
 use super::constants::{
-    DEFAULT_LOCK_SERVERS_STARTING_PORT, DEFAULT_NUM_LOCK_SERVERS, LOCK_SERVERS_STARTING_PORT_KEY,
-    NUM_LOCK_SERVERS_KEY, SCAN_INTERVAL_CONSTANT, STR_LOG_KEYWORD, LIST_LOG_KEYWORD, TRANS_LOG_STR_PREFIX, TRANS_LOG_LIST_PREFIX,
+    DEFAULT_LOCK_SERVERS_STARTING_PORT, DEFAULT_NUM_LOCK_SERVERS, LIST_LOG_KEYWORD,
+    LOCK_SERVERS_STARTING_PORT_KEY, NUM_LOCK_SERVERS_KEY, SCAN_INTERVAL_CONSTANT, STR_LOG_KEYWORD,
+    TRANS_LOG_LIST_PREFIX, TRANS_LOG_STR_PREFIX,
 };
 use super::lock_client::{self, LockClient};
+use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -16,7 +18,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tonic::transport::{Channel, Endpoint};
 use tribbler::err::TribResult;
-use tribbler::storage::{BinStorage, KeyString, Storage, KeyValue};
+use tribbler::storage::{BinStorage, KeyString, KeyValue, Storage};
 extern crate dotenv;
 use dotenv::dotenv;
 use std::env;
@@ -41,23 +43,32 @@ pub fn split_string(s: String) -> (String, String) {
     if splits.len() <= 2 {
         panic!("Split Error");
     }
-    return (s[0], s[1]);
+    return (splits[0].to_string(), splits[1].to_string());
 }
 
 impl transaction_client {
-    pub fn new(lock_client: Arc<LockClient>, transaction_id: String, channel_cache: Arc<RwLock<HashMap<String, Channel>>>, bin_storage: Arc<BinStorageClient>) -> Self {
+    pub fn new(
+        lock_client: Arc<LockClient>,
+        transaction_id: String,
+        channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
+        bin_storage: Arc<BinStorageClient>,
+    ) -> Self {
         Self {
             transaction_id,
-            transaction_num: RwLock<u64>::new(0),
+            transaction_num: RwLock::<u64>::new(0),
             lock_client,
             channel_cache,
             bin_storage,
         }
     }
 
-    pub async fn transaction_start(&mut self, read_keys_map: HashMap<String, Vec<String>>, write_keys_map: HashMap<String, Vec<String>>) -> String {
-        let write_keys = vec![];
-        let read_keys = vec![];
+    pub async fn transaction_start(
+        &mut self,
+        read_keys_map: HashMap<String, Vec<String>>,
+        write_keys_map: HashMap<String, Vec<String>>,
+    ) -> TribResult<String> {
+        let mut write_keys = vec![];
+        let mut read_keys = vec![];
         for (bin, key_list) in write_keys_map.iter() {
             for key in key_list.iter() {
                 write_keys.push(format!("{}::{}", bin, key));
@@ -68,14 +79,15 @@ impl transaction_client {
                 read_keys.push(format!("{}::{}", bin, key))
             }
         }
-        self.lock_client.acquire_locks(read_keys, write_keys).await?;
-        let trans_num = self.transaction_num.write().await;
+        self.lock_client
+            .acquire_locks(read_keys, write_keys)
+            .await?;
+        let mut trans_num = self.transaction_num.write().await;
         let trans_key = trans_num.to_string();
-        trans_num = trans_num + 1;
+        (*trans_num) = (*trans_num) + 1;
         drop(trans_num);
         for (bin, key_list) in write_keys_map.iter() {
-            let client = self.bin_storage.bin(bin).await?;
-            client.acquire_lock();
+            let client = self.bin_storage.bin_with_locks(bin).await?;
             for raw_key in key_list.iter() {
                 let (prefix, key) = split_string(raw_key.to_string());
                 let mut trans_log = transaction_log {
@@ -83,40 +95,48 @@ impl transaction_client {
                     transaction_key: trans_key.to_string(),
                     old_value: vec![],
                 };
-                trans_num = trans_num + 1;
-                drop(trans_num);
                 if prefix == STR_LOG_KEYWORD {
                     let old_value = client.get(&key).await?;
                     if old_value.is_none() {
-                        trans_log.old_value.push("");
-                        client.set(&KeyValue {
-                            key: format!("{}{}", TRANS_LOG_STR_PREFIX, key),
-                            value: serde_json::to_string(&trans_log)?,
-                        }).await?;
+                        trans_log.old_value.push("".to_string());
+                        client
+                            .set(&KeyValue {
+                                key: format!("{}{}", TRANS_LOG_STR_PREFIX, key),
+                                value: serde_json::to_string(&trans_log)?,
+                            })
+                            .await?;
                     } else {
                         trans_log.old_value.push(old_value.unwrap());
-                        client.set(&KeyValue {
-                            key: format!("{}{}", TRANS_LOG_STR_PREFIX, key),
-                            value: serde_json::to_string(&trans_log)?,
-                        }).await?;
+                        client
+                            .set(&KeyValue {
+                                key: format!("{}{}", TRANS_LOG_STR_PREFIX, key),
+                                value: serde_json::to_string(&trans_log)?,
+                            })
+                            .await?;
                     }
-                }
-                else if prefix == LIST_LOG_KEYWORD {
-                    let old_value = client.list_get(&key).await?.0;
+                } else if prefix == LIST_LOG_KEYWORD {
+                    let mut old_value = client.list_get(&key).await?.0;
                     trans_log.old_value.append(&mut old_value);
-                    client.set(&KeyValue {
-                        key: format!("{}{}", TRANS_LOG_LIST_PREFIX, key),
-                        value: serde_json::to_string(&trans_log)?,
-                    }).await?;
+                    client
+                        .set(&KeyValue {
+                            key: format!("{}{}", TRANS_LOG_LIST_PREFIX, key),
+                            value: serde_json::to_string(&trans_log)?,
+                        })
+                        .await?;
                 }
             }
         }
-        return trans_key;
+        Ok(trans_key)
     }
 
-    pub fn transaction_end(&self, trans_key: String, read_keys_map: HashMap<String, Vec<String>>, write_keys_map: HashMap<String, Vec<String>>) -> TribResult<()> {
-        let write_keys = vec![];
-        let read_keys = vec![];
+    pub async fn transaction_end(
+        &self,
+        trans_key: String,
+        read_keys_map: HashMap<String, Vec<String>>,
+        write_keys_map: HashMap<String, Vec<String>>,
+    ) -> TribResult<()> {
+        let mut write_keys = vec![];
+        let mut read_keys = vec![];
         for (bin, key_list) in write_keys_map.iter() {
             for key in key_list.iter() {
                 write_keys.push(format!("{}::{}", bin, key));
@@ -128,11 +148,15 @@ impl transaction_client {
             }
         }
         let client = self.bin_storage.bin(&self.transaction_id).await?;
-        client.set(&KeyValue{
-            key: trans_key.to_string(),
-            value: "True".to_string(),
-        }).await?;
-        self.lock_client.release_locks(read_keys, write_keys).await?;
+        client
+            .set(&KeyValue {
+                key: trans_key.to_string(),
+                value: "True".to_string(),
+            })
+            .await?;
+        self.lock_client
+            .release_locks(read_keys, write_keys)
+            .await?;
         Ok(())
     }
 }
@@ -306,6 +330,28 @@ pub(crate) async fn update_channel_cache(
 }
 
 impl BinStorageClient {
+    pub async fn bin_with_locks(&self, name: &str) -> tribbler::err::TribResult<Box<dyn Storage>> {
+        let mut hasher = DefaultHasher::new();
+        self.scan_backs_status().await;
+        name.hash(&mut hasher);
+        let hash_res = hasher.finish();
+        let backs = self.backs.clone();
+        let len = backs.len() as u64;
+        let ind = (hash_res % len) as u32;
+        let back_status = self.back_status_mut.read().await;
+        let back_status_copy = (*back_status).clone();
+        let mut storage_bin_replicator_adapter = BinReplicatorAdapter::new(
+            ind,
+            backs.clone(),
+            name,
+            back_status_copy,
+            self.channel_cache.clone(),
+            self.lock_client.clone(),
+        );
+        storage_bin_replicator_adapter.with_lock = true;
+        // println!("{}", target_back_addr);
+        Ok(Box::new(storage_bin_replicator_adapter))
+    }
     // This function is provided for keeper to use, so it do not need to scan
     pub fn bin_with_backs(
         &self,

@@ -43,7 +43,7 @@ pub struct BinReplicatorAdapter {
     back_status: Vec<bool>,
     channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
     lock_client: Arc<LockClient>,
-    with_lock: bool,
+    pub with_lock: bool,
 }
 
 impl BinReplicatorAdapter {
@@ -73,7 +73,6 @@ impl BinReplicatorAdapter {
     pub fn release_lock(&mut self) {
         self.with_lock = false;
     }
-
 }
 
 use async_trait::async_trait;
