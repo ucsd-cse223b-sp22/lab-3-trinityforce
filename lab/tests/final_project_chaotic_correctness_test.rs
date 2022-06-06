@@ -349,7 +349,7 @@ async fn setup2(backs: Vec<String>, keepers: Vec<String>) -> TribResult<(Vec<Mps
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn test_bin_storage() -> TribResult<()> {
+async fn test_random_operations() -> TribResult<()> {
     // Der Ring des Nibelungen:
     // Once a little elf try to snatch the precious backend server data from the holy Rhine River.
     // And thy should be aware of the imminent dangers and call upon our mighty keeper to protect the holy consistency of our data
