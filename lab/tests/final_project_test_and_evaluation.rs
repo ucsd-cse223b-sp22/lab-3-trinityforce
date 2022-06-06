@@ -150,6 +150,7 @@ async fn setup(backs: Vec<String>, keepers: Vec<String>, live_backs: usize, live
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_bin_storage_failure() -> TribResult<()> {
+    lab3::new_lockserver_ping_test().await?;
     let keeper_addresses3 = generate_addresses(3, false);
     let backend_addresses3 = generate_addresses(8, true);
     let keeper_addresses3_keep = keeper_addresses3.clone();
@@ -303,6 +304,7 @@ async fn test_bin_storage_failure() -> TribResult<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_bin_storage_no_failure() -> TribResult<()> {
+    lab3::new_lockserver_ping_test().await?;
     let keeper_addresses3 = generate_addresses(3, false);
     let backend_addresses3 = generate_addresses(8, true);
     let keeper_addresses3_keep = keeper_addresses3.clone();
@@ -335,4 +337,4 @@ async fn test_bin_storage_no_failure() -> TribResult<()> {
     Ok(())
 }
 
-// cargo test --package lab --test lab3_test -- test_single_list_append_one_node_dead --exact --nocapture
+// cargo test --package lab --test final_project_test_and_evaluation -- test_bin_storage_failure --exact --nocapture
