@@ -43,7 +43,7 @@ pub fn repl(app: &Command) -> TribResult<ArgMatches> {
     let mut args = match shlex::split(&input) {
         Some(v) => v,
         None => {
-            println!("error splitting args");
+            // println!("error splitting args");
             return Err(Box::new(TribblerError::Unknown(
                 "failed to split args".to_string(),
             )));
@@ -56,7 +56,7 @@ pub fn repl(app: &Command) -> TribResult<ArgMatches> {
     match matches {
         Ok(v) => Ok(v),
         Err(e) => {
-            println!("Failed to parse args: {}", e);
+            // println!("Failed to parse args: {}", e);
             Err(Box::new(TribblerError::Unknown(
                 "failed to parse args".to_string(),
             )))
@@ -113,5 +113,5 @@ fn get_pattern(matches: &ArgMatches) -> Pattern {
 }
 
 pub fn print_result<T: Debug>(x: Result<T, Box<dyn Error + Send + Sync>>) {
-    println!("{:?}", x);
+    // println!("{:?}", x);
 }

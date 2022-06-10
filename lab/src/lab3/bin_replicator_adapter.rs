@@ -124,10 +124,10 @@ impl storage::KeyString for BinReplicatorAdapter {
 
         let mut write_keys = vec![];
         write_keys.push(wrapped_key.to_string());
-        println!(
-            "set acquire {:?}",
-            self.lockkey_decorator(write_keys.clone())
-        );
+        // println!(
+        //     "set acquire {:?}",
+        //     self.lockkey_decorator(write_keys.clone())
+        // );
         if !self.with_lock {
             self.lock_client
                 .acquire_locks(vec![], self.lockkey_decorator(write_keys.clone()))
@@ -143,10 +143,10 @@ impl storage::KeyString for BinReplicatorAdapter {
                 kv,
             )
             .await;
-        println!(
-            "set release {:?}",
-            self.lockkey_decorator(write_keys.clone())
-        );
+        // println!(
+        //     "set release {:?}",
+        //     self.lockkey_decorator(write_keys.clone())
+        // );
         if !self.with_lock {
             self.lock_client
                 .release_locks(vec![], self.lockkey_decorator(write_keys))
@@ -420,10 +420,10 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
         if primary_adapter_option.is_some() && secondary_adapter_option.is_some() {
             let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
             let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
-            println!(
-                "{},{}",
-                primary_bin_prefix_adapter.addr, secondary_bin_prefix_adapter.addr
-            );
+            // println!(
+            //     "{},{}",
+            //     primary_bin_prefix_adapter.addr, secondary_bin_prefix_adapter.addr
+            // );
             primary_bin_prefix_adapter.list_append(new_kv).await;
             secondary_bin_prefix_adapter.list_append(new_kv).await;
         } else if primary_adapter_option.is_some() {
@@ -450,10 +450,10 @@ impl BinReplicatorHelper for BinReplicatorAdapter {
         if primary_adapter_option.is_some() && secondary_adapter_option.is_some() {
             let primary_bin_prefix_adapter = primary_adapter_option.as_ref().unwrap();
             let secondary_bin_prefix_adapter = secondary_adapter_option.as_ref().unwrap();
-            println!(
-                "{},{}",
-                primary_bin_prefix_adapter.addr, secondary_bin_prefix_adapter.addr
-            );
+            // println!(
+            //     "{},{}",
+            //     primary_bin_prefix_adapter.addr, secondary_bin_prefix_adapter.addr
+            // );
             primary_bin_prefix_adapter.list_set(new_kl).await;
             secondary_bin_prefix_adapter.list_set(new_kl).await;
         } else if primary_adapter_option.is_some() {
@@ -765,7 +765,7 @@ impl storage::KeyList for BinReplicatorAdapter {
             )
             .await;
         let res = list_ret.unwrap();
-        println!("get list action: {:?}", res.0);
+        // println!("get list action: {:?}", res.0);
         if !self.with_lock {
             self.lock_client
                 .release_locks(self.lockkey_decorator(read_keys), vec![])

@@ -31,7 +31,7 @@ pub async fn main(
         .init();
     let config = Arc::new(Config::read(Some(&cfg))?);
 
-    println!("{:?}", config);
+    // println!("{:?}", config);
     let (tx, rdy) = mpsc::channel();
 
     let mut handles = vec![];
