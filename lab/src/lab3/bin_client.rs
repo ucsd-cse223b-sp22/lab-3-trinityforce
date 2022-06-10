@@ -24,13 +24,13 @@ use dotenv::dotenv;
 use std::env;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct transaction_log {
+pub struct TxnLog {
     transaction_id: String,
     transaction_key: String,
     old_value: Vec<String>,
 }
 
-pub struct transaction_client {
+pub struct TxnClient {
     transaction_id: String,
     transaction_num: RwLock<u64>,
     lock_client: Arc<LockClient>,
@@ -46,7 +46,7 @@ pub fn split_string(s: String) -> (String, String) {
     return (splits[0].to_string(), splits[1].to_string());
 }
 
-impl transaction_client {
+impl TxnClient {
     pub fn new(
         lock_client: Arc<LockClient>,
         transaction_id: String,
@@ -90,7 +90,7 @@ impl transaction_client {
             let client = self.bin_storage.bin_with_locks(bin).await?;
             for raw_key in key_list.iter() {
                 let (prefix, key) = split_string(raw_key.to_string());
-                let mut trans_log = transaction_log {
+                let mut trans_log = TxnLog {
                     transaction_id: self.transaction_id.to_string(),
                     transaction_key: trans_key.to_string(),
                     old_value: vec![],
