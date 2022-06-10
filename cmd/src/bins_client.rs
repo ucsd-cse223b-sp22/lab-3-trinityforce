@@ -34,7 +34,7 @@ async fn main() -> TribResult<()> {
         .subcommands(app_commands())
         .subcommands(bin_cmd());
     let mut client: Option<Box<dyn Storage>> = Some(bc.bin("").await?);
-    println!("(now working on bin \"\")");
+    // println!("(now working on bin \"\")");
 
     loop {
         match repl(&app) {
@@ -57,7 +57,7 @@ pub async fn match_cmds(
         Some(("bin", v)) => match bin_client.bin(v.value_of("bin").unwrap()).await {
             Ok(binned) => {
                 let _ = client.insert(binned);
-                println!("(now working on bin \"{}\")", v.value_of("bin").unwrap());
+                // println!("(now working on bin \"{}\")", v.value_of("bin").unwrap());
                 true
             }
             Err(e) => {
@@ -70,7 +70,7 @@ pub async fn match_cmds(
         other => match client {
             Some(c) => match_storage_cmds(&**c, other).await,
             None => {
-                println!("client must be initialized with the `bin` command first");
+                // println!("client must be initialized with the `bin` command first");
                 true
             }
         },

@@ -141,8 +141,8 @@ impl BigFuckingTester {
         }
         let (back_addresses, keeper_addresses) =
             generate_addresses(back_len, keeper_len, testing_sequence_id);
-        println!("Backend addresses: {:?}", back_addresses.clone());
-        println!("Keeper addresses: {:?}", keeper_addresses.clone());
+        // println!("Backend addresses: {:?}", back_addresses.clone());
+        // println!("Keeper addresses: {:?}", keeper_addresses.clone());
         let (back_shut_vec, keeper_shut_vec) = setup(
             back_addresses.clone(),
             initial_back_live_indices.clone(),
