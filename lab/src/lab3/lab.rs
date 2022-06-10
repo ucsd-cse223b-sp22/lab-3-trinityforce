@@ -1,3 +1,6 @@
+use super::bin_client::{self, init_lock_servers_addresses};
+use super::lock_client::{self, LockClient};
+use crate::big_fucking_tester::generate_random_username;
 use crate::lab3::keeper_server::{KeeperClockBroadcastorTrait, KeeperMigratorTrait};
 
 use super::constants::{BRAODCAST_CLOCK_INTERVAL, MIGRATION_INTERVAL, VALIDATION_BIT_KEY};
@@ -8,13 +11,14 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time;
+use tonic::transport::Channel;
 use tribbler::rpc::trib_storage_server::TribStorageServer;
 use tribbler::storage::BinStorage;
 use tribbler::storage::{self, KeyString};
 use tribbler::trib;
 use tribbler::{config::BackConfig, err::TribResult};
 
-use super::bin_client::{update_channel_cache, BinStorageClient, LockServerPinger};
+use super::bin_client::{update_channel_cache, BinStorageClient, LockServerPinger, TxnClient};
 use super::frontend_server::FrontendServer;
 use tribbler::config::KeeperConfig;
 
@@ -255,4 +259,29 @@ pub async fn new_lockserver_ping_test() -> TribResult<()> {
     let pinger = LockServerPinger::new();
     pinger.ping_test().await?;
     Ok(())
+}
+
+pub fn new_txn_client(
+    channel_cache: Arc<RwLock<HashMap<String, Channel>>>,
+    bin_storage: Arc<BinStorageClient>,
+    lock_client: Arc<LockClient>,
+) -> TxnClient {
+    let client = TxnClient::new(
+        lock_client,
+        generate_random_username(10),
+        channel_cache,
+        bin_storage,
+    );
+    return client;
+}
+
+pub fn new_lock_client() -> LockClient {
+    let lock_addrs = bin_client::init_lock_servers_addresses();
+    let clock_client = LockClient::new(lock_addrs, false);
+    return clock_client;
+}
+
+pub fn new_bin_client_for_txn(backs: Vec<String>) -> BinStorageClient {
+    let binStorage = BinStorageClient::new(backs);
+    return binStorage;
 }
