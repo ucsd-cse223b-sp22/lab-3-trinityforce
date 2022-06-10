@@ -17,9 +17,9 @@ use tribbler::{
 const BIN_NUM: usize = 1;
 const KEY_NUM: usize = 1;
 const VAL_NUM: usize = 20;
-const READ_WRITE_RATIO: usize = 10; //0..=10
+const READ_WRITE_RATIO: usize = 7; //0..=10
 const TOTAL_OP: usize = 3000;
-const NUM_CLIENT: u64 = 3;
+const NUM_CLIENT: u64 = 10;
 
 fn spawn_back(cfg: BackConfig) -> tokio::task::JoinHandle<TribResult<()>> {
     println!("setting up back");
@@ -35,10 +35,12 @@ async fn perform_random_action(lab3: &Box<dyn BinStorage>, rng: &mut StdRng) -> 
     let action: usize;
     if action_type >= READ_WRITE_RATIO {
         // Action: get = 0, list_get = 1, keys = 2, list_keys = 3
-        action = rng.gen_range(0..4);
+        // action = rng.gen_range(0..4);
+        action = 0;
     } else {
         // Action: set = 4, list_append = 5, list_remove = 6
-        action = rng.gen_range(4..7);
+        // action = rng.gen_range(4..7);
+        action = 4;
     }
 
     // Bin, key, val
@@ -320,12 +322,12 @@ async fn test_bin_storage_no_failure() -> TribResult<()> {
 
     let start_time = Instant::now();
 
-    for i in 0..NUM_CLIENT {
+    for _ in 0..NUM_CLIENT {
         let back_addr = backend_addresses3.clone();
         clients.push(tokio::spawn(async move {
             let bin_client3 = lab3::new_bin_client(back_addr.clone()).await.unwrap();
             let mut op_count = 0;
-            let mut rng = StdRng::seed_from_u64(i);
+            let mut rng = StdRng::seed_from_u64(2022);
             loop {
                 let _ = perform_random_action(&bin_client3, &mut rng).await;
                 op_count += 1;
