@@ -40,7 +40,7 @@ pub struct TxnClient {
 
 pub fn split_string(s: String) -> (String, String) {
     let splits = s.split("::").collect::<Vec<&str>>();
-    if splits.len() <= 2 {
+    if splits.len() < 2 {
         panic!("Split Error");
     }
     return (splits[0].to_string(), splits[1].to_string());
